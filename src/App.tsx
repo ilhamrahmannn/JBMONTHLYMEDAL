@@ -1,11 +1,11 @@
 import { doc, setDoc, onSnapshot } from "firebase/firestore";
 import { db } from "./firebase";
 import { useEffect, useMemo, useState } from "react";
-import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Card, CardContent } from "./components/ui/card";
+import { Button } from "./components/ui/button";
+import { Input } from "./components/ui/input";
 import { Trophy, Users, RotateCcw, Settings } from "lucide-react";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+
 
 const ADMIN_PASSWORD = "JBMM2026";
 
@@ -382,7 +382,7 @@ const togglePlayerSection = (key: keyof typeof openPlayerSections) => {
     [key]: !prev[key],
   }));
 };
-
+const isPlayerView = viewMode === "player";
   const activeCategory =
     categories.find((cat) => cat.id === activeCategoryId) || categories[0];
 
@@ -1501,7 +1501,7 @@ if (viewMode === "admin" && !isAdminAuthenticated) {
     ) : (
       <Input
         value={activeCategory.players[code] || ""}
-        disabled={viewMode === "player"}
+        disabled={isPlayerView}
         onChange={(e) =>
           updateActiveCategory({
             players: {
