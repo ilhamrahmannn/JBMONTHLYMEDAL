@@ -296,6 +296,236 @@ function playerName(players: PlayerMap, code: string): string {
   return players[code]?.trim() || code;
 }
 
+function isSearchedPlayer(
+  players: PlayerMap,
+  code: string,
+  playerSearch: string
+) {
+  const search = playerSearch.trim().toLowerCase();
+  if (!search || !code) return false;
+
+  const name = players[code]?.trim().toLowerCase() || "";
+
+  return code.toLowerCase() === search || name === search;
+}
+
+type RankingRow = {
+  playerCode: string;
+  playerName: string;
+  category: string;
+  played: number;
+  wins: number;
+  losses: number;
+  titles: number;
+  points: number;
+};
+
+function getPointSystem(categoryName: string) {
+  const isOpen = categoryName.toLowerCase().includes("open");
+
+  return isOpen
+    ? {
+        participation: 15,
+        groupWin: 8,
+        mainQF: 20,
+        mainSF: 35,
+        runnerUp: 60,
+        champion: 100,
+        loserRunnerUp: 25,
+        loserChampion: 40,
+      }
+    : {
+        participation: 10,
+        groupWin: 5,
+        mainQF: 15,
+        mainSF: 25,
+        runnerUp: 40,
+        champion: 60,
+        loserRunnerUp: 15,
+        loserChampion: 25,
+      };
+}
+
+function calculateCategoryRanking(category: Category): RankingRow[] {
+  const points = getPointSystem(category.name);
+
+  const ranking: Record<string, RankingRow> = {};
+
+  Object.entries(category.players).forEach(([code, name]) => {
+    if (!name.trim()) return;
+
+    ranking[code] = {
+      playerCode: code,
+      playerName: name.trim(),
+      category: category.name,
+      played: 0,
+      wins: 0,
+      losses: 0,
+      titles: 0,
+      points: points.participation,
+    };
+  });
+
+  category.groupMatches.forEach((m) => {
+    if (!ranking[m.p1] || !ranking[m.p2]) return;
+    if (m.s1 === "" || m.s2 === "") return;
+
+    const s1 = Number(m.s1);
+    const s2 = Number(m.s2);
+
+    if (!isMatchComplete(s1, s2, category.matchFormat)) return;
+
+    ranking[m.p1].played++;
+    ranking[m.p2].played++;
+
+    if (s1 > s2) {
+      ranking[m.p1].wins++;
+      ranking[m.p2].losses++;
+      ranking[m.p1].points += points.groupWin;
+    } else {
+      ranking[m.p2].wins++;
+      ranking[m.p1].losses++;
+      ranking[m.p2].points += points.groupWin;
+    }
+  });
+
+ 
+
+  const groupTable: Record<string, any[]> = {};
+const groups = generateGroups(category.numberOfGroups);
+
+groups.forEach((g) => {
+  groupTable[g] = Array.from(
+    { length: category.playersPerGroup },
+    (_, i) => ({
+      code: `${g}${i + 1}`,
+      win: 0,
+      gf: 0,
+      ga: 0,
+      diff: 0,
+    })
+  );
+});
+
+category.groupMatches.forEach((m) => {
+  if (m.s1 === "" || m.s2 === "") return;
+
+  const s1 = Number(m.s1);
+  const s2 = Number(m.s2);
+
+  if (!isMatchComplete(s1, s2, category.matchFormat)) return;
+
+  const p1 = groupTable[m.group]?.find((p) => p.code === m.p1);
+  const p2 = groupTable[m.group]?.find((p) => p.code === m.p2);
+
+  if (!p1 || !p2) return;
+
+  p1.gf += s1;
+  p1.ga += s2;
+  p2.gf += s2;
+  p2.ga += s1;
+
+  if (s1 > s2) {
+    p1.win++;
+  } else {
+    p2.win++;
+  }
+
+  p1.diff = p1.gf - p1.ga;
+  p2.diff = p2.gf - p2.ga;
+});
+
+groups.forEach((g) => {
+  groupTable[g].sort(
+    (a, b) =>
+      b.win - a.win ||
+      b.diff - a.diff ||
+      b.gf - a.gf ||
+      a.code.localeCompare(b.code)
+  );
+});
+
+const mainEntrants = groups.flatMap(
+  (g) =>
+    groupTable[g]
+      ?.slice(0, category.topQualify)
+      .map((p) => p.code) || []
+);
+
+const loserEntrants = groups.flatMap(
+  (g) =>
+    groupTable[g]
+      ?.slice(category.topQualify)
+      .map((p) => p.code) || []
+);
+
+const addDrawPoints = (
+  matches: DrawMatch[],
+  scores: ScoreMap,
+  isLoserPool: boolean
+) => {
+  matches.forEach((m) => {
+    const winner = getWinner(m, scores, category.matchFormat);
+
+    if (!winner || !ranking[winner]) return;
+
+    if (m.round === "Quarter Final") {
+      ranking[winner].points += isLoserPool ? 5 : points.mainQF;
+    }
+
+    if (m.round === "Semi Final") {
+      ranking[winner].points += isLoserPool ? 10 : points.mainSF;
+    }
+
+    if (m.round === "Final") {
+  const loser = winner === m.p1 ? m.p2 : m.p1;
+
+  ranking[winner].points += isLoserPool
+    ? points.loserChampion
+    : points.champion;
+
+  ranking[winner].titles++;
+
+  if (loser && ranking[loser]) {
+    ranking[loser].points += isLoserPool
+      ? points.loserRunnerUp
+      : points.runnerUp;
+  }
+}
+  });
+};
+
+addDrawPoints(
+  resolveDraw(
+    buildBracket("MAIN", mainEntrants),
+    category.mainScores,
+    category.matchFormat
+  ),
+  category.mainScores,
+  false
+);
+
+addDrawPoints(
+  resolveDraw(
+    buildBracket("LOSER", loserEntrants),
+    category.loserScores,
+    category.matchFormat
+  ),
+  category.loserScores,
+  true
+);
+
+
+
+  return Object.values(ranking).sort(
+    (a, b) =>
+      b.points - a.points ||
+      b.wins - a.wins ||
+      a.losses - b.losses ||
+      a.playerName.localeCompare(b.playerName)
+  );
+}
+
 function buildRoundRobinRounds(matches: GroupMatch[]) {
   return [...matches].sort((a, b) => {
     if (a.round !== b.round) return a.round - b.round;
@@ -347,7 +577,7 @@ function hasPlayerConflict(match: { p1: string; p2: string }, usedPlayers: Set<s
 }
 
 type AppProps = {
-  viewMode: "admin" | "player";
+  viewMode: "admin" | "player" | "ranking";
 };
 
 export default function App({ viewMode }: AppProps) {
@@ -363,6 +593,12 @@ export default function App({ viewMode }: AppProps) {
   const [outdoorCourts, setOutdoorCourts] = useState(0);
   const [startTime, setStartTime] = useState("08:00");
   const [orderOfPlay, setOrderOfPlay] = useState<OrderMatch[]>([]);
+ useEffect(() => {
+  console.log("ORDER OF PLAY COUNT", orderOfPlay.length);
+
+  const ids = orderOfPlay.map((m) => m.id);
+  console.log("DUPLICATES", ids);
+}, [orderOfPlay]);
   const [isLoaded, setIsLoaded] = useState(false);
   const tournamentDocRef = doc(db, "tournaments", "jb-monthly-medal");
   console.log("APP LOADED");
@@ -375,6 +611,7 @@ export default function App({ viewMode }: AppProps) {
   loser: true,
   order: true,
 });
+  const [playerSearch, setPlayerSearch] = useState("");
 
 const togglePlayerSection = (key: keyof typeof openPlayerSections) => {
   setOpenPlayerSections((prev) => ({
@@ -386,6 +623,15 @@ const isPlayerView = viewMode === "player";
   const activeCategory =
     categories.find((cat) => cat.id === activeCategoryId) || categories[0];
 
+    const rankingRows = useMemo(() => {
+  return categories.flatMap((cat) =>
+    calculateCategoryRanking(cat)
+  );
+}, [categories]);
+
+console.log("RANKING TEST");
+console.log(rankingRows);
+
   const groups = useMemo(
     () => generateGroups(activeCategory.numberOfGroups),
     [activeCategory.numberOfGroups]
@@ -395,6 +641,8 @@ const isPlayerView = viewMode === "player";
     () => generateCourts(indoorCourts, outdoorCourts),
     [indoorCourts, outdoorCourts]
   );
+
+  
 
   const updateActiveCategory = (updates: Partial<Category>) => {
     setCategories((prev) =>
@@ -579,11 +827,44 @@ const isPlayerView = viewMode === "player";
   );
 
   const loserChampion = getWinner(
-    loserMatches[loserMatches.length - 1],
-    activeCategory.loserScores,
-    activeCategory.matchFormat
-  );
+  loserMatches[loserMatches.length - 1],
+  activeCategory.loserScores,
+  activeCategory.matchFormat
+);
 
+
+
+  const searchedPlayerCodes = Object.entries(activeCategory.players)
+  .filter(([code, name]) => {
+    const search = playerSearch.trim().toLowerCase();
+
+    if (!search) return false;
+
+    return (
+      code.toLowerCase() === search ||
+      (name || "").toLowerCase().includes(search)
+    );
+  })
+  .map(([code]) => code);
+
+  const playerFound =
+  playerSearch.trim() === "" ||
+  searchedPlayerCodes.length > 0;
+  
+  const playerSuggestions = Object.entries(activeCategory.players)
+  .filter(([code, name]) => {
+    const search = playerSearch.trim().toLowerCase();
+
+    if (!search) return false;
+
+    return (
+      code.toLowerCase().startsWith(search) ||
+      (name || "").toLowerCase().startsWith(search)
+    );
+  })
+  .slice(0, 5);
+
+  
   const generateTournament = () => {
     const newGroups = generateGroups(activeCategory.numberOfGroups);
 
@@ -943,27 +1224,31 @@ const saveTournamentToFirebase = async () => {
       (g) => table[g]?.slice(cat.topQualify).map((p) => p.code) || []
     );
 
-    const mainDrawMatches = buildBracket("MAIN", mainEntrantsForCat).map((m, index) => ({
-      id: m.id,
-      title: `${m.round}`,
-      p1: m.p1 || "TBD",
-      p2: m.p2 || "TBD",
-      category: `${cat.name} | Main Draw`,
-      categoryId: cat.id,
-      format: cat.matchFormat,
-    }));
+    const mainDrawMatches = buildBracket("MAIN", mainEntrantsForCat)
+  .filter((m) => m.p1 && m.p2)
+  .map((m) => ({
+    id: m.id,
+    title: `${m.round}`,
+    p1: m.p1,
+    p2: m.p2,
+    category: `${cat.name} | Main Draw`,
+    categoryId: cat.id,
+    format: cat.matchFormat,
+  }));
 
     addMatchesToSchedule(mainDrawMatches);
 
-    const loserPoolMatches = buildBracket("LOSER", loserEntrantsForCat).map((m) => ({
-  id: m.id,
-  title: `${m.round}`,
-  p1: m.p1 || "TBD",
-  p2: m.p2 || "TBD",
-  category: `${cat.name} | Losers Pool`,
-      categoryId: cat.id,
-      format: cat.matchFormat,
-    }));
+    const loserPoolMatches = buildBracket("LOSER", loserEntrantsForCat)
+  .filter((m) => m.p1 && m.p2)
+  .map((m) => ({
+    id: m.id,
+    title: `${m.round}`,
+    p1: m.p1,
+    p2: m.p2,
+    category: `${cat.name} | Losers Pool`,
+    categoryId: cat.id,
+    format: cat.matchFormat,
+  }));
 
     addMatchesToSchedule(loserPoolMatches);
   });
@@ -1079,6 +1364,9 @@ if (viewMode === "admin" && !isAdminAuthenticated) {
   );
 }
 
+if (viewMode === "ranking") {
+  return <RankingView rankingRows={rankingRows} />;
+}
 
   return (
     <div className="min-h-screen bg-neutral-950 text-neutral-100 p-4 md:p-8">
@@ -1429,6 +1717,44 @@ if (viewMode === "admin" && !isAdminAuthenticated) {
 </div>
 
        <div key={activeCategory.id} className="category-fade space-y-8">
+        {viewMode === "player" && (
+  <Card className="bg-neutral-900 border-neutral-700 rounded-3xl text-white">
+    <CardContent className="p-4 space-y-3">
+      <Input
+        placeholder="Search player name or code..."
+        value={playerSearch}
+        onChange={(e) => setPlayerSearch(e.target.value)}
+        className="bg-neutral-950 border-neutral-600 rounded-xl text-white"
+      />
+
+      {playerSearch.trim() !== "" &&
+        playerSuggestions.length > 0 && (
+          <div className="bg-neutral-950 border border-neutral-700 rounded-2xl overflow-hidden">
+            {playerSuggestions.map(([code, name]) => (
+              <button
+                key={code}
+                type="button"
+                onClick={() => setPlayerSearch(name || code)}
+                className="w-full text-left px-4 py-2 hover:bg-neutral-800 text-white font-semibold"
+              >
+                <span className="text-lime-300 mr-2">
+                  {code}
+                </span>
+                {name || code}
+              </button>
+            ))}
+          </div>
+        )}
+
+      {!playerFound && (
+        <div className="text-red-400 font-semibold text-sm">
+          No player found for "{playerSearch}"
+        </div>
+      )}
+    </CardContent>
+  </Card>
+)}
+       
   {(mainChampion || loserChampion) && (
     <div className="grid md:grid-cols-2 gap-4">
       {mainChampion && (
@@ -1580,7 +1906,16 @@ if (viewMode === "admin" && !isAdminAuthenticated) {
 
             <div className="space-y-2">
               {activeCategory.groupMatches
-                .filter((m) => m.group === g)
+  .filter((m) => {
+    if (m.group !== g) return false;
+
+    if (!playerSearch.trim()) return true;
+
+    return (
+      searchedPlayerCodes.includes(m.p1) ||
+      searchedPlayerCodes.includes(m.p2)
+    );
+  })
                 .map((m) => (
                   <div
                     key={m.id}
@@ -1730,6 +2065,7 @@ if (viewMode === "admin" && !isAdminAuthenticated) {
       meta={activeCategory.mainMeta}
       updateDrawMeta={updateDrawMeta}
       matchFormat={activeCategory.matchFormat}
+      playerSearch={playerSearch}
     />
   )}
 </section>
@@ -1760,6 +2096,7 @@ if (viewMode === "admin" && !isAdminAuthenticated) {
       meta={activeCategory.loserMeta}
       updateDrawMeta={updateDrawMeta}
       matchFormat={activeCategory.matchFormat}
+      playerSearch={playerSearch}
     />
   )}
 </section>
@@ -1781,7 +2118,27 @@ if (viewMode === "admin" && !isAdminAuthenticated) {
                     </h3>
 
                     {orderOfPlay
-                      .filter((match) => match.court === court.name)
+  .filter((match) => {
+    if (match.court !== court.name) return false;
+
+    const search = playerSearch.trim().toLowerCase();
+    if (!search) return true;
+
+    if (match.categoryId !== activeCategory.id) return false;
+    if (!match.p1 || !match.p2) return false;
+    if (match.p1 === "TBD" || match.p2 === "TBD") return false;
+
+    const p1Name = (activeCategory.players[match.p1] || "").toLowerCase();
+    const p2Name = (activeCategory.players[match.p2] || "").toLowerCase();
+
+    const p1Match =
+      match.p1.toLowerCase() === search || p1Name === search;
+
+    const p2Match =
+      match.p2.toLowerCase() === search || p2Name === search;
+
+    return p1Match || p2Match;
+  })
                       .map((match) => {
                         const matchCategory =
   categories.find((cat) => cat.id === match.categoryId) || activeCategory;
@@ -1858,14 +2215,16 @@ const loserScore = matchCategory.loserScores[match.id];
 
                             <div className="flex items-center justify-between gap-2">
                               <span
-                                className={
-                                  p1Win
-                                    ? "text-lime-300 font-bold"
-                                    : p2Win
-                                    ? "text-red-400 font-bold"
-                                    : "text-white font-bold"
-                                }
-                              >
+  className={
+    isSearchedPlayer(matchCategory.players, match.p1, playerSearch)
+      ? "text-yellow-300 font-extrabold underline"
+      : p1Win
+      ? "text-lime-300 font-bold"
+      : p2Win
+      ? "text-red-400 font-bold"
+      : "text-white font-bold"
+  }
+>
                                 {playerName(matchCategory.players, match.p1)}
                               </span>
 
@@ -1878,14 +2237,16 @@ const loserScore = matchCategory.loserScores[match.id];
 
                             <div className="flex items-center justify-between gap-2">
                               <span
-                                className={
-                                  p2Win
-                                    ? "text-lime-300 font-bold"
-                                    : p1Win
-                                    ? "text-red-400 font-bold"
-                                    : "text-white font-bold"
-                                }
-                              >
+  className={
+    isSearchedPlayer(matchCategory.players, match.p2, playerSearch)
+      ? "text-yellow-300 font-extrabold underline"
+      : p2Win
+      ? "text-lime-300 font-bold"
+      : p1Win
+      ? "text-red-400 font-bold"
+      : "text-white font-bold"
+  }
+>
                                 {playerName(matchCategory.players, match.p2)}
                               </span>
 
@@ -1922,6 +2283,7 @@ function DrawSection({
   meta,
   updateDrawMeta,
   matchFormat,
+  playerSearch,
 }: {
   title: string;
   matches: DrawMatch[];
@@ -1943,8 +2305,11 @@ function DrawSection({
     value: string
   ) => void;
   matchFormat: MatchFormat;
+  playerSearch: string;
 }) {
   const rounds = [...new Set(matches.map((m) => m.round))];
+
+  
 
   if (matches.length === 0) {
   return (
@@ -1991,9 +2356,15 @@ function DrawSection({
 </div>
 
                     <div className="grid grid-cols-[1fr_56px] gap-2 items-center">
-                      <div className="text-white font-semibold">
-                        {playerName(players, m.p1)}
-                      </div>
+                      <div
+  className={
+    isSearchedPlayer(players, m.p1, playerSearch)
+      ? "text-yellow-300 font-extrabold underline"
+      : "text-white font-semibold"
+  }
+>
+  {playerName(players, m.p1)}
+</div>
 
                       <Input
                         type="number"
@@ -2005,9 +2376,15 @@ function DrawSection({
                         className="bg-neutral-900 border-neutral-600 rounded-xl text-white font-bold disabled:opacity-40"
                       />
 
-                      <div className="text-white font-semibold">
-                        {playerName(players, m.p2)}
-                      </div>
+                      <div
+  className={
+    isSearchedPlayer(players, m.p2, playerSearch)
+      ? "text-yellow-300 font-extrabold underline"
+      : "text-white font-semibold"
+  }
+>
+  {playerName(players, m.p2)}
+</div>
 
                       <Input
                         type="number"
@@ -2070,5 +2447,91 @@ function DrawSection({
         ))}
       </div>
     </section>
+  );
+}
+
+function RankingView({ rankingRows }: { rankingRows: RankingRow[] }) {
+  return (
+    <div className="min-h-screen bg-neutral-950 text-white p-4 md:p-8">
+      <div className="max-w-6xl mx-auto space-y-6">
+        <div>
+          <h1 className="text-4xl md:text-5xl font-bold">
+            JB Monthly Medal Ranking
+          </h1>
+
+          <p className="text-neutral-300 mt-2">
+            Ranking based on participation, match wins and tournament results.
+          </p>
+        </div>
+
+        <Card className="bg-neutral-900 border-neutral-700 rounded-3xl text-white">
+          <CardContent className="p-0 overflow-x-auto">
+            <table className="w-full text-sm">
+
+              <thead className="bg-neutral-800 text-lime-300">
+                <tr>
+                  <th className="p-4 text-left">Rank</th>
+                  <th className="p-4 text-left">Player</th>
+                  <th className="p-4 text-center">Played</th>
+                  <th className="p-4 text-center">W</th>
+                  <th className="p-4 text-center">L</th>
+                  <th className="p-4 text-center">Titles</th>
+                  <th className="p-4 text-center">Points</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {rankingRows
+                  .slice()
+                  .sort((a, b) => b.points - a.points)
+                  .map((p, index) => (
+                    <tr
+                      key={`${p.category}-${p.playerCode}`}
+                      className="border-b border-neutral-800"
+                    >
+                      <td className="p-4">
+                        {index === 0
+                          ? "🥇"
+                          : index === 1
+                          ? "🥈"
+                          : index === 2
+                          ? "🥉"
+                          : `#${index + 1}`}
+                      </td>
+
+                      <td className="p-4 font-bold">
+                        {p.playerName}
+                      </td>
+
+
+
+                      <td className="p-4 text-center">
+                        {p.played}
+                      </td>
+
+                      <td className="p-4 text-center text-lime-300">
+                        {p.wins}
+                      </td>
+
+                      <td className="p-4 text-center text-red-400">
+                        {p.losses}
+                      </td>
+
+                      <td className="p-4 text-center">
+                        {p.titles}
+                      </td>
+
+                      <td className="p-4 text-center text-yellow-300 font-bold">
+                        {p.points}
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+
+            </table>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
   );
 }
