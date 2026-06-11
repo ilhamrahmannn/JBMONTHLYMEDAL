@@ -187,15 +187,101 @@ function roundName(playersLeft: number) {
   return `Round of ${playersLeft}`;
 }
 
+function parseGroupQualifier(code: string) {
+  const match = code.match(/^([A-Z]+)(\d+)$/i);
+
+  if (!match) return null;
+
+  return {
+    group: match[1].toUpperCase(),
+    rank: Number(match[2]),
+  };
+}
+
+function buildSeedSlots(entrants: string[], size: number) {
+  const byeCount = size - entrants.length;
+
+  if (byeCount <= 0) return [...entrants];
+
+  const parsedEntrants = entrants
+    .map((code) => ({ code, seed: parseGroupQualifier(code) }))
+    .filter(
+      (entrant): entrant is { code: string; seed: { group: string; rank: number } } =>
+        entrant.seed !== null
+    );
+
+  const ranks = Array.from(new Set(parsedEntrants.map((entrant) => entrant.seed.rank))).sort(
+    (a, b) => a - b
+  );
+  const groups = Array.from(
+    new Set(parsedEntrants.map((entrant) => entrant.seed.group))
+  ).sort();
+
+  if (size === 16 && entrants.length === 12 && groups.length === 6 && ranks.length >= 2) {
+    const topRank = ranks[0];
+    const secondRank = ranks[1];
+    const byGroup = new Map<string, Map<number, string>>();
+
+    parsedEntrants.forEach((entrant) => {
+      const groupRanks = byGroup.get(entrant.seed.group) ?? new Map<number, string>();
+      groupRanks.set(entrant.seed.rank, entrant.code);
+      byGroup.set(entrant.seed.group, groupRanks);
+    });
+
+    const topSeeds = groups.map((group) => byGroup.get(group)?.get(topRank) ?? "");
+    const secondSeeds = groups.map((group) => byGroup.get(group)?.get(secondRank) ?? "");
+
+    if (topSeeds.every(Boolean) && secondSeeds.every(Boolean)) {
+      return [
+        topSeeds[0],
+        topSeeds[4],
+        topSeeds[3],
+        topSeeds[5],
+        topSeeds[1],
+        secondSeeds[0],
+        topSeeds[2],
+        secondSeeds[1],
+        secondSeeds[2],
+        "BYE",
+        secondSeeds[3],
+        "BYE",
+        secondSeeds[4],
+        "BYE",
+        secondSeeds[5],
+        "BYE",
+      ];
+    }
+  }
+
+  const topRank = ranks[0];
+  const byeEligible = parsedEntrants
+    .filter((entrant) => entrant.seed.rank === topRank)
+    .sort((a, b) => a.seed.group.localeCompare(b.seed.group));
+  const byeSeeds = byeEligible.slice(0, byeCount).map((entrant) => entrant.code);
+  const remaining = entrants.filter((entrant) => !byeSeeds.includes(entrant));
+  const seeds = Array<string>(size).fill("");
+
+  byeSeeds.forEach((seed, index) => {
+    seeds[index] = seed;
+    seeds[size - 1 - index] = "BYE";
+  });
+
+  remaining.forEach((seed, index) => {
+    const slot = byeCount + index;
+
+    if (slot < size - byeCount) {
+      seeds[slot] = seed;
+    }
+  });
+
+  return seeds.map((seed) => seed || "BYE");
+}
+
 function buildBracket(prefix: string, entrants: string[]): DrawMatch[] {
   if (entrants.length < 2) return [];
 
   const size = nextPowerOfTwo(entrants.length);
-  const seeds = [...entrants];
-
-  while (seeds.length < size) {
-    seeds.push("BYE");
-  }
+  const seeds = buildSeedSlots(entrants, size);
 
   const matches: DrawMatch[] = [];
   let roundSize = size;
@@ -605,6 +691,24 @@ type AppProps = {
 
 type PlayerSection = "groups" | "draw" | "order" | "rank";
 type PlayerDrawTab = "main" | "loser";
+
+function BrandHomeLink({ dark = false }: { dark?: boolean }) {
+  return (
+    <Link
+      to="/"
+      className={
+        dark
+          ? "inline-flex cursor-pointer items-center gap-3 font-extrabold text-white transition hover:opacity-85 hover:drop-shadow-[0_0_10px_rgba(163,230,53,0.35)]"
+          : "inline-flex cursor-pointer items-center gap-3 font-extrabold text-slate-950 transition hover:opacity-85 hover:drop-shadow-[0_0_10px_rgba(5,150,105,0.25)]"
+      }
+    >
+      <span className="grid size-9 place-items-center rounded-full border-2 border-lime-400 text-sm text-lime-300">
+        JB
+      </span>
+      <span>Monthly Medal</span>
+    </Link>
+  );
+}
 
 function snakeSeedPlayersIntoGroups(
   players: AcceptancePlayer[],
@@ -1582,6 +1686,9 @@ if (viewMode === "admin" && !isAdminAuthenticated) {
   return (
     <div className="sport-page flex items-center justify-center p-4">
       <div className="sport-card w-full max-w-md p-6">
+        <div className="mb-6">
+          <BrandHomeLink />
+        </div>
         <div className="mb-5">
           <div className="sport-chip mb-3">Admin Area</div>
           <h1 className="text-2xl font-extrabold text-slate-950">Admin Login</h1>
@@ -1650,6 +1757,7 @@ if (viewMode === "admin" && isAdminAuthenticated && adminActivityOpen) {
   return (
     <div className={isPlayerView ? "player-view-shell" : "sport-page p-4 md:p-6"}>
       <div className={isPlayerView ? "player-view-frame space-y-4" : "max-w-7xl mx-auto space-y-8"}>
+        <BrandHomeLink dark={isPlayerView} />
         {isPlayerView ? (
           <header className="flex items-start justify-between gap-4">
             <div>
@@ -3076,6 +3184,98 @@ function PlayerBracket({
   const rounds = [...new Set(matches.map((m) => m.round))].sort(
     (a, b) => roundOrder.indexOf(a) - roundOrder.indexOf(b)
   );
+  const bracketLayout = useMemo(() => {
+    const cardWidth = 210;
+    const cardHeight = 132;
+    const roundGap = 56;
+    const matchGap = 24;
+    const columnPitch = cardWidth + roundGap;
+    const rowPitch = cardHeight + matchGap;
+    const roundMatches = rounds.map((round) =>
+      matches
+        .filter((match) => match.round === round)
+        .sort((a, b) => {
+          const aMatch = Number(a.id.match(/M(\d+)$/)?.[1] ?? 0);
+          const bMatch = Number(b.id.match(/M(\d+)$/)?.[1] ?? 0);
+
+          return aMatch - bMatch;
+        })
+    );
+    const positions = new Map<
+      string,
+      { left: number; top: number; roundIndex: number; match: DrawMatch }
+    >();
+
+    roundMatches.forEach((roundMatchList, roundIndex) => {
+      roundMatchList.forEach((match, matchIndex) => {
+        const left = roundIndex * columnPitch;
+        let top = matchIndex * rowPitch;
+
+        if (roundIndex > 0) {
+          const parents = roundMatches[roundIndex - 1]
+            .filter((parent) => parent.next === match.id)
+            .map((parent) => positions.get(parent.id))
+            .filter(
+              (position): position is {
+                left: number;
+                top: number;
+                roundIndex: number;
+                match: DrawMatch;
+              } => Boolean(position)
+            );
+
+          if (parents.length > 0) {
+            const parentCenter =
+              parents.reduce(
+                (total, parent) => total + parent.top + cardHeight / 2,
+                0
+              ) / parents.length;
+            top = parentCenter - cardHeight / 2;
+          }
+        }
+
+        positions.set(match.id, { left, top, roundIndex, match });
+      });
+    });
+
+    const connectors = matches
+      .map((match) => {
+        const from = positions.get(match.id);
+        const to = match.next ? positions.get(match.next) : null;
+
+        if (!from || !to) return null;
+
+        const fromX = from.left + cardWidth;
+        const fromY = from.top + cardHeight / 2;
+        const toX = to.left;
+        const toY = to.top + cardHeight / 2;
+        const midX = fromX + (toX - fromX) / 2;
+
+        return {
+          id: `${match.id}-${match.next}`,
+          points: `${fromX},${fromY} ${midX},${fromY} ${midX},${toY} ${toX},${toY}`,
+        };
+      })
+      .filter((connector): connector is { id: string; points: string } =>
+        Boolean(connector)
+      );
+    const positionedMatches = Array.from(positions.values());
+    const width = Math.max(rounds.length * cardWidth + Math.max(rounds.length - 1, 0) * roundGap, cardWidth);
+    const height =
+      Math.max(
+        ...positionedMatches.map((position) => position.top + cardHeight),
+        cardHeight
+      ) + 4;
+
+    return {
+      cardWidth,
+      cardHeight,
+      connectors,
+      height,
+      positions: positionedMatches,
+      width,
+    };
+  }, [matches, rounds]);
 
   if (matches.length === 0) {
     return (
@@ -3088,30 +3288,41 @@ function PlayerBracket({
   return (
     <div className="player-bracket-scroll">
       <div
-        className="player-bracket-grid"
-        style={{ gridTemplateColumns: `repeat(${rounds.length}, 210px)` }}
+        className="player-bracket-stage"
+        style={{
+          height: bracketLayout.height,
+          width: bracketLayout.width,
+        }}
       >
-        {rounds.map((round, roundIndex) => (
+        <svg
+          className="player-bracket-connectors"
+          height={bracketLayout.height}
+          width={bracketLayout.width}
+          viewBox={`0 0 ${bracketLayout.width} ${bracketLayout.height}`}
+        >
+          {bracketLayout.connectors.map((connector) => (
+            <polyline key={connector.id} points={connector.points} />
+          ))}
+        </svg>
+
+        {bracketLayout.positions.map(({ left, top, match }) => (
           <div
-            key={round}
-            className={
-              roundIndex === rounds.length - 1
-                ? "player-bracket-round player-bracket-round-final"
-                : "player-bracket-round"
-            }
+            key={match.id}
+            className="player-bracket-card-shell"
+            style={{
+              height: bracketLayout.cardHeight,
+              left,
+              top,
+              width: bracketLayout.cardWidth,
+            }}
           >
-            {matches
-              .filter((m) => m.round === round)
-              .map((match) => (
-                <PlayerBracketCard
-                  key={match.id}
-                  match={match}
-                  scores={scores}
-                  meta={meta}
-                  players={players}
-                  matchFormat={matchFormat}
-                />
-              ))}
+            <PlayerBracketCard
+              match={match}
+              scores={scores}
+              meta={meta}
+              players={players}
+              matchFormat={matchFormat}
+            />
           </div>
         ))}
       </div>
@@ -3187,6 +3398,7 @@ function RankingView({ rankingRows }: { rankingRows: RankingRow[] }) {
   return (
     <div className="sport-page p-4 md:p-6">
       <div className="max-w-6xl mx-auto space-y-6">
+        <BrandHomeLink />
         <div className="sport-hero">
           <div className="sport-chip mb-4 bg-emerald-50 text-emerald-700 ring-emerald-100">
             Ranking
@@ -3310,6 +3522,9 @@ const deleteTournament = async (id: string) => {
 };
   return (
     <div className="sport-page p-4 md:p-6">
+      <div className="mb-6">
+        <BrandHomeLink />
+      </div>
       <div className="sport-hero mb-8">
         {onBack && (
           <button
@@ -3431,6 +3646,7 @@ function PastTournamentResultPage() {
 
   return (
     <div className="sport-page p-4 md:p-6 space-y-6">
+      <BrandHomeLink />
       <Link to="/activity" className="text-emerald-700 font-bold">
         ← Back to Tournament Activity
       </Link>

@@ -302,39 +302,28 @@
     @apply overflow-x-auto pb-3;
   }
 
-  .player-bracket-grid {
-    @apply grid min-w-max items-center gap-9;
+  .player-bracket-stage {
+    @apply relative min-w-max;
   }
 
-  .player-bracket-round {
-    @apply relative grid gap-5;
+  .player-bracket-connectors {
+    @apply absolute inset-0 pointer-events-none;
+  }
+
+  .player-bracket-connectors polyline {
+    fill: none;
+    stroke: rgba(190, 242, 100, 0.28);
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .player-bracket-card-shell {
+    @apply absolute z-10;
   }
 
   .player-bracket-card {
-    @apply relative min-h-32 rounded-lg border border-white/15 bg-white/[0.045] p-3 text-white shadow-[0_18px_50px_rgba(0,0,0,0.28)] backdrop-blur;
-  }
-
-  .player-bracket-card::after {
-    content: "";
-    position: absolute;
-    top: 50%;
-    right: -37px;
-    width: 36px;
-    border-top: 2px solid rgba(255, 255, 255, 0.18);
-  }
-
-  .player-bracket-round::after {
-    content: "";
-    position: absolute;
-    top: 28%;
-    right: -37px;
-    bottom: 28%;
-    border-right: 2px solid rgba(255, 255, 255, 0.18);
-  }
-
-  .player-bracket-round-final::after,
-  .player-bracket-round-final .player-bracket-card::after {
-    display: none;
+    @apply relative h-full rounded-lg border border-white/15 bg-white/[0.045] p-3 text-white shadow-[0_18px_50px_rgba(0,0,0,0.28)] backdrop-blur;
   }
 }
 

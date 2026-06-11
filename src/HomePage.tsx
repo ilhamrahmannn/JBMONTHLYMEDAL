@@ -5,7 +5,6 @@ import {
   ClipboardList,
   FolderOpen,
   Shield,
-  Users,
 } from "lucide-react";
 
 const featureCards = [
@@ -22,13 +21,6 @@ const featureCards = [
     desc: "Manage tournament setup, scores, draw, order of play and results.",
     href: "/admin",
     button: "Admin Login",
-  },
-  {
-    icon: Users,
-    title: "Player View",
-    desc: "Check live match schedule, draw, group results and rankings.",
-    href: "/playerview",
-    button: "Open Player View",
   },
   {
     icon: ClipboardList,
@@ -50,7 +42,10 @@ export default function HomePage() {
   return (
     <div className="min-h-screen bg-[#07100c] text-white">
       <header className="sticky top-0 z-30 flex items-center justify-between border-b border-white/10 bg-[#07100c]/90 px-5 py-3 backdrop-blur md:px-10">
-        <Link to="/" className="flex items-center gap-3 font-extrabold">
+        <Link
+          to="/"
+          className="flex cursor-pointer items-center gap-3 font-extrabold transition hover:opacity-85 hover:drop-shadow-[0_0_10px_rgba(163,230,53,0.35)]"
+        >
           <span className="grid size-9 place-items-center rounded-full border-2 border-lime-400 text-sm text-lime-300">
             JB
           </span>
@@ -139,7 +134,7 @@ export default function HomePage() {
         </section>
 
         <section className="bg-[#07100c] px-5 py-14 md:px-16">
-          <div className="mx-auto grid max-w-7xl gap-4 md:grid-cols-2 xl:grid-cols-5">
+          <div className="mx-auto grid max-w-7xl gap-4 md:grid-cols-2 xl:grid-cols-4">
             {featureCards.map((card) => {
               const Icon = card.icon;
 
