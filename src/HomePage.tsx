@@ -96,7 +96,7 @@ export default function HomePage() {
 
           <div className="relative max-w-3xl">
             <span className="inline-flex rounded-full border border-lime-400/50 bg-black/35 px-3 py-2 text-xs font-extrabold text-lime-300">
-              Next Event: Sunday, 28 June 2026
+              Next Event: Sunday, 21 June 2026
             </span>
 
             <h1 className="mt-6 max-w-2xl text-[clamp(56px,8vw,92px)] font-light leading-[0.95] tracking-normal text-[#f7f7ef]">
@@ -111,15 +111,23 @@ export default function HomePage() {
               results, and knockout draws.
             </p>
 
+            <div className="mt-5 inline-flex flex-col rounded-lg border border-lime-400/35 bg-lime-400/10 px-4 py-3 text-lime-300 shadow-[0_12px_36px_rgba(132,204,22,0.12)] backdrop-blur">
+              <span className="text-[11px] font-extrabold uppercase tracking-wide">
+                Indoor Court
+              </span>
+              <span className="mt-1 text-sm font-extrabold uppercase tracking-wide text-lime-100">
+                Nusa Duta Tennis Complex
+              </span>
+            </div>
+
             <div className="mt-8 flex flex-wrap gap-3">
-              <a
-                href="https://wa.me/60123456789?text=Hi%2C%20I%20want%20to%20register%20for%20JB%20Monthly%20Medal"
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex min-h-12 items-center rounded-lg bg-lime-400 px-5 font-extrabold text-black hover:bg-lime-300"
+              <button
+                type="button"
+                disabled
+                className="inline-flex min-h-12 cursor-not-allowed items-center rounded-lg bg-lime-400 px-5 font-extrabold text-black opacity-50"
               >
-                Register Now
-              </a>
+                Registration Closed
+              </button>
               <Link
                 to="/playerview"
                 className="inline-flex min-h-12 items-center rounded-lg border border-white/20 bg-white/10 px-5 font-extrabold text-white hover:bg-white/15"
