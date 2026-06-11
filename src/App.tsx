@@ -15,7 +15,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent } from "./components/ui/card";
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
-import { Trophy, Users, RotateCcw, Settings } from "lucide-react";
+import { Search, Trophy, Users, RotateCcw, Settings } from "lucide-react";
 import { deleteDoc } from "firebase/firestore";
 import { Trash2 } from "lucide-react";
 
@@ -333,6 +333,16 @@ type RankingRow = {
   points: number;
 };
 
+type AcceptancePlayer = {
+  name: string;
+  category: string;
+  points: number;
+  titles: number;
+  wins: number;
+  played: number;
+  seed: number | null;
+};
+
 function getPointSystem(categoryName: string) {
   const isOpen = categoryName.toLowerCase().includes("open");
 
@@ -593,6 +603,84 @@ type AppProps = {
   viewMode: "admin" | "player" | "ranking" | "activity" | "activityDetail";
 };
 
+type PlayerSection = "groups" | "draw" | "order" | "rank";
+type PlayerDrawTab = "main" | "loser";
+
+function snakeSeedPlayersIntoGroups(
+  players: AcceptancePlayer[],
+  numberOfGroups: number,
+  playersPerGroup: number
+): PlayerMap {
+  const groups = generateGroups(numberOfGroups);
+  const playerMap: PlayerMap = {};
+
+  groups.forEach((g) => {
+    for (let i = 1; i <= playersPerGroup; i++) {
+      playerMap[`${g}${i}`] = "";
+    }
+  });
+
+  const sortedPlayers = [...players].sort((a, b) => {
+    return (
+      b.points - a.points ||
+      b.titles - a.titles ||
+      b.wins - a.wins ||
+      b.played - a.played ||
+      a.name.localeCompare(b.name)
+    );
+  });
+
+  sortedPlayers.forEach((player, index) => {
+    player.seed = index + 1;
+  });
+
+  let playerIndex = 0;
+
+  for (let row = 0; row < playersPerGroup; row++) {
+    const direction =
+      row % 2 === 0 ? groups : [...groups].reverse();
+
+    direction.forEach((group) => {
+      if (!sortedPlayers[playerIndex]) return;
+
+      const slot = `${group}${row + 1}`;
+      const player = sortedPlayers[playerIndex];
+
+      playerMap[slot] = player.name;
+
+      playerIndex++;
+    });
+  }
+
+  return playerMap;
+}
+
+function buildSeededAcceptancePlayers(
+  names: string[],
+  categoryName: string,
+  rankingRows: RankingRow[]
+): AcceptancePlayer[] {
+  return names.map((name) => {
+    const ranking = rankingRows.find(
+      (r) =>
+        r.playerName.trim().toLowerCase() ===
+          name.trim().toLowerCase() &&
+        r.category.trim().toLowerCase() ===
+          categoryName.trim().toLowerCase()
+    );
+
+    return {
+      name: name.trim(),
+      category: categoryName,
+      points: ranking?.points || 0,
+      titles: ranking?.titles || 0,
+      wins: ranking?.wins || 0,
+      played: ranking?.played || 0,
+      seed: null,
+    };
+  });
+}
+
 export default function App({ viewMode }: AppProps) {
 
   useEffect(() => {
@@ -650,6 +738,10 @@ export default function App({ viewMode }: AppProps) {
   order: true,
 });
   const [playerSearch, setPlayerSearch] = useState("");
+  const [playerActiveSection, setPlayerActiveSection] =
+    useState<PlayerSection>("groups");
+  const [playerDrawTab, setPlayerDrawTab] = useState<PlayerDrawTab>("main");
+  const [adminActivityOpen, setAdminActivityOpen] = useState(false);
 
 const togglePlayerSection = (key: keyof typeof openPlayerSections) => {
   setOpenPlayerSections((prev) => ({
@@ -660,10 +752,12 @@ const togglePlayerSection = (key: keyof typeof openPlayerSections) => {
 
 const [tournamentActivities, setTournamentActivities] = useState<any[]>([]);
 const [currentTournamentId, setCurrentTournamentId] = useState<string>("");
-
+const [acceptanceInput, setAcceptanceInput] = useState("");
 
 
 const isPlayerView = viewMode === "player";
+const showPlayerSection = (section: PlayerSection) =>
+  !isPlayerView || playerActiveSection === section;
   const activeCategory =
     categories.find((cat) => cat.id === activeCategoryId) || categories[0];
 
@@ -914,7 +1008,59 @@ console.log(rankingRows);
   })
   .slice(0, 5);
 
-  
+  const generateSeededGroupDraw = () => {
+  const names = acceptanceInput
+    .split(/\r?\n/)
+    .map((name) => name.trim())
+    .filter(Boolean);
+
+  if (names.length === 0) {
+    alert("Please paste acceptance list first");
+    return;
+  }
+
+  const maxPlayers =
+    activeCategory.numberOfGroups * activeCategory.playersPerGroup;
+
+  if (names.length > maxPlayers) {
+    alert(
+      `Too many players. Maximum for this category is ${maxPlayers}`
+    );
+    return;
+  }
+
+  const seededPlayers = buildSeededAcceptancePlayers(
+    names,
+    activeCategory.name,
+    rankingRows
+  );
+
+  const newPlayers = snakeSeedPlayersIntoGroups(
+    seededPlayers,
+    activeCategory.numberOfGroups,
+    activeCategory.playersPerGroup
+  );
+
+  const newGroups = generateGroups(activeCategory.numberOfGroups);
+
+  updateActiveCategory({
+    players: newPlayers,
+    groupMatches: makeRoundRobinMatches(
+      newGroups,
+      activeCategory.playersPerGroup,
+      activeCategory.name.replace(/\s+/g, "-").toLowerCase()
+    ),
+    mainScores: {},
+    loserScores: {},
+    mainMeta: {},
+    loserMeta: {},
+  });
+
+  setOrderOfPlay([]);
+
+  alert("Seeded group draw generated");
+};
+
   const generateTournament = () => {
     const newGroups = generateGroups(activeCategory.numberOfGroups);
 
@@ -1309,7 +1455,7 @@ const closeTournament = async () => {
 
     const groupStageMatches = buildRoundRobinRounds(cat.groupMatches).map((m) => ({
   id: m.id,
-  title: `Group ${m.group} • Round ${m.round}`,
+  title: `Group ${m.group} - Round ${m.round}`,
   p1: m.p1,
   p2: m.p2,
   category: cat.name,
@@ -1434,16 +1580,22 @@ const exportPDF = () => {
 
 if (viewMode === "admin" && !isAdminAuthenticated) {
   return (
-    <div className="min-h-screen bg-neutral-950 flex items-center justify-center p-4">
-      <div className="bg-neutral-900 border border-neutral-700 p-8 rounded-3xl w-full max-w-md text-white">
-        <h1 className="text-2xl font-bold mb-4">Admin Login</h1>
+    <div className="sport-page flex items-center justify-center p-4">
+      <div className="sport-card w-full max-w-md p-6">
+        <div className="mb-5">
+          <div className="sport-chip mb-3">Admin Area</div>
+          <h1 className="text-2xl font-extrabold text-slate-950">Admin Login</h1>
+          <p className="sport-muted mt-1">
+            Manage live scoring, draws, courts and order of play.
+          </p>
+        </div>
 
         <Input
           type="password"
           value={adminPassword}
           onChange={(e) => setAdminPassword(e.target.value)}
           placeholder="Enter admin password"
-          className="bg-neutral-950 border-neutral-600 rounded-xl text-white mb-4"
+          className="sport-input mb-4 h-11"
           onKeyDown={(e) => {
             if (e.key === "Enter" && adminPassword === ADMIN_PASSWORD) {
               setIsAdminAuthenticated(true);
@@ -1459,7 +1611,7 @@ if (viewMode === "admin" && !isAdminAuthenticated) {
               alert("Wrong password");
             }
           }}
-          className="w-full rounded-2xl bg-lime-500 hover:bg-lime-600 text-black font-bold"
+          className="h-11 w-full sport-button-primary"
         >
           Login
         </Button>
@@ -1473,23 +1625,54 @@ if (viewMode === "ranking") {
 }
 
 if (viewMode === "activity") {
-  return <TournamentActivityPage activities={tournamentActivities} />;
+  return (
+    <TournamentActivityPage
+      activities={tournamentActivities}
+      isAdmin={false}
+    />
+  );
 }
 
 if (viewMode === "activityDetail") {
   return <PastTournamentResultPage />;
 }
 
+if (viewMode === "admin" && isAdminAuthenticated && adminActivityOpen) {
   return (
-    <div className="min-h-screen bg-neutral-950 text-neutral-100 p-4 md:p-8">
-      <div className="max-w-7xl mx-auto space-y-8">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+    <TournamentActivityPage
+      activities={tournamentActivities}
+      isAdmin={true}
+      onBack={() => setAdminActivityOpen(false)}
+    />
+  );
+}
+
+  return (
+    <div className={isPlayerView ? "player-view-shell" : "sport-page p-4 md:p-6"}>
+      <div className={isPlayerView ? "player-view-frame space-y-4" : "max-w-7xl mx-auto space-y-8"}>
+        {isPlayerView ? (
+          <header className="flex items-start justify-between gap-4">
+            <div>
+              <h1 className="text-3xl font-bold tracking-tight text-white">
+                Player View
+              </h1>
+              <p className="mt-1 text-sm font-semibold text-white">
+                {activeCategory.name} category selected automatically
+              </p>
+            </div>
+            <span className="player-live-badge">Live</span>
+          </header>
+        ) : (
+        <div className="sport-hero flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
           <div>
-            <h1 className="text-3xl md:text-5xl font-bold tracking-tight text-white">
+            <div className="mb-3 inline-flex rounded-full bg-white/15 px-3 py-1 text-xs font-bold uppercase tracking-wide text-emerald-50 ring-1 ring-white/20">
+              {tournamentDate} | {activeCategory.name}
+            </div>
+            <h1 className="text-3xl md:text-5xl font-extrabold tracking-tight text-white">
   {tournamentName}
 </h1>
 
-<p className="text-neutral-200 mt-2 font-medium">
+<p className="text-emerald-50/90 mt-2 font-medium">
   {viewMode === "admin"
     ? "Tournament Management Dashboard"
     : "Live Tournament Results & Schedule"}
@@ -1499,32 +1682,39 @@ if (viewMode === "activityDetail") {
           <div className="flex flex-wrap items-center gap-2">
   {viewMode === "admin" && (
     <>
-      <Button
+<Button
   onClick={createNewTournament}
-  className="rounded-2xl bg-green-600 hover:bg-green-700 text-white font-semibold"
+  className="sport-button-primary"
 >
   Create Tournament
 </Button>
 
 <Button
   onClick={saveTournamentToFirebase}
-  className="rounded-2xl bg-cyan-600 hover:bg-cyan-700 text-white font-semibold"
+  className="rounded-lg bg-emerald-500 hover:bg-emerald-400 text-white font-bold"
 >
   Save Live
 </Button>
 
 <Button
   onClick={closeTournament}
-  className="rounded-2xl bg-orange-600 hover:bg-orange-700 text-white font-semibold"
+  className="rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold"
 >
   Close Tournament
 </Button>
 
       <Button
   onClick={() => window.open("/playerview", "_blank")}
-  className="rounded-2xl bg-cyan-600 hover:bg-cyan-700 text-white font-semibold"
+  className="sport-button-dark"
 >
   Open Player View
+</Button>
+
+<Button
+  onClick={() => setAdminActivityOpen(true)}
+  className="sport-button-dark"
+>
+  Tournament Activity
 </Button>
 
 
@@ -1536,11 +1726,12 @@ if (viewMode === "activityDetail") {
   
 </div>
         </div>
+        )}
 {viewMode === "admin" && (
   <>
-        <Card className="bg-neutral-900 border-neutral-700 rounded-3xl text-white">
+        <Card className="sport-card">
           <CardContent className="p-6 space-y-6">
-            <h2 className="text-2xl font-bold flex items-center gap-2">
+            <h2 className="sport-section-title flex items-center gap-2">
               <Settings />
               Tournament Setup
             </h2>
@@ -1551,8 +1742,8 @@ if (viewMode === "activityDetail") {
       key={cat.id}
       className={
         activeCategory.id === cat.id
-          ? "flex items-center gap-2 rounded-2xl bg-lime-500 p-2 text-black transition-all duration-300 scale-105 shadow-lg shadow-lime-500/30"
-          : "flex items-center gap-2 rounded-2xl bg-neutral-800 p-2 text-white transition-all duration-300 hover:bg-neutral-700"
+          ? "flex items-center gap-2 rounded-xl bg-emerald-600 p-2 text-white transition-all duration-300 shadow-lg shadow-emerald-600/20"
+          : "flex items-center gap-2 rounded-lg bg-slate-100 p-2 text-slate-500 transition-all duration-300 hover:bg-slate-200"
       }
     >
       <Input
@@ -1567,8 +1758,8 @@ if (viewMode === "activityDetail") {
         }
         className={
           activeCategory.id === cat.id
-            ? "h-9 w-44 bg-lime-100 border-lime-700 text-black font-bold rounded-xl"
-            : "h-9 w-44 bg-neutral-950 border-neutral-600 text-white font-bold rounded-xl"
+            ? "h-9 w-44 rounded-lg border-emerald-700 bg-emerald-50 text-emerald-950 font-bold"
+            : "h-9 w-44 sport-input font-bold"
         }
       />
 
@@ -1578,8 +1769,8 @@ if (viewMode === "activityDetail") {
         disabled={categories.length <= 1}
         className={
           categories.length <= 1
-            ? "h-8 px-2 rounded-xl bg-neutral-600 text-neutral-300 cursor-not-allowed"
-            : "h-8 px-2 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold"
+            ? "h-8 px-2 rounded-lg bg-slate-200 text-slate-400 cursor-not-allowed"
+            : "h-8 px-2 rounded-lg bg-red-600 hover:bg-red-700 text-white font-bold"
         }
       >
         X
@@ -1593,7 +1784,7 @@ if (viewMode === "activityDetail") {
       setCategories((prev) => [...prev, newCategory]);
       setActiveCategoryId(newCategory.id);
     }}
-   className="self-center h-[52px] px-5 rounded-2xl bg-yellow-400 hover:bg-yellow-500 text-black font-bold shadow-lg"
+   className="self-center h-[52px] px-5 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold shadow-lg"
   >
     + Add Category
   </Button>
@@ -1601,40 +1792,39 @@ if (viewMode === "activityDetail") {
 
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5">
               <div className="space-y-2">
-                <label className="text-sm text-neutral-200 font-semibold">
+                <label className="text-sm text-slate-500 font-semibold">
                   Tournament Name
                 </label>
                 <Input
                   value={tournamentName}
                   onChange={(e) => setTournamentName(e.target.value)}
-                  className="bg-neutral-950 border-neutral-600 rounded-xl text-white font-semibold"
+                  className="sport-input font-semibold"
                 />
               </div>
               <div className="space-y-2">
-  <label className="text-sm text-neutral-200 font-semibold">
+  <label className="text-sm text-slate-500 font-semibold">
     Tournament Date
   </label>
   <Input
   type="date"
   value={tournamentDate}
   onChange={(e) => setTournamentDate(e.target.value)}
-  className="bg-neutral-950 border-neutral-600 rounded-xl text-white font-semibold"
-  style={{ colorScheme: "dark" }}
+  className="sport-input font-semibold"
 />
 </div>
               <div className="space-y-2">
-                <label className="text-sm text-neutral-200 font-semibold">
+                <label className="text-sm text-slate-500 font-semibold">
                   Category Name
                 </label>
                 <Input
                   value={activeCategory.name}
                   onChange={(e) => updateActiveCategory({ name: e.target.value })}
-                  className="bg-neutral-950 border-neutral-600 rounded-xl text-white font-semibold"
+                  className="sport-input font-semibold"
                 />
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm text-neutral-200 font-semibold">
+                <label className="text-sm text-slate-500 font-semibold">
                   Number of Groups
                 </label>
                 <Input
@@ -1647,12 +1837,12 @@ if (viewMode === "activityDetail") {
                       numberOfGroups: Number(e.target.value),
                     })
                   }
-                  className="bg-neutral-950 border-neutral-600 rounded-xl text-white font-semibold"
+                  className="sport-input font-semibold"
                 />
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm text-neutral-200 font-semibold">
+                <label className="text-sm text-slate-500 font-semibold">
                   Players / Group
                 </label>
                 <Input
@@ -1664,12 +1854,12 @@ if (viewMode === "activityDetail") {
                       playersPerGroup: Number(e.target.value),
                     })
                   }
-                  className="bg-neutral-950 border-neutral-600 rounded-xl text-white font-semibold"
+                  className="sport-input font-semibold"
                 />
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm text-neutral-200 font-semibold">
+                <label className="text-sm text-slate-500 font-semibold">
                   Top Qualify
                 </label>
                 <Input
@@ -1682,12 +1872,12 @@ if (viewMode === "activityDetail") {
                       topQualify: Number(e.target.value),
                     })
                   }
-                  className="bg-neutral-950 border-neutral-600 rounded-xl text-white font-semibold"
+                  className="sport-input font-semibold"
                 />
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm text-neutral-200 font-semibold">
+                <label className="text-sm text-slate-500 font-semibold">
                   Format
                 </label>
                 <select
@@ -1697,7 +1887,7 @@ if (viewMode === "activityDetail") {
                       matchFormat: e.target.value as MatchFormat,
                     })
                   }
-                  className="w-full h-10 bg-neutral-950 border border-neutral-600 rounded-xl text-white font-semibold px-3"
+                  className="sport-select"
                 >
                   <option value="SHORT_SET_4">Short Set - First to 4</option>
                   <option value="NORMAL_SET_6">Normal Set - First to 6</option>
@@ -1706,7 +1896,7 @@ if (viewMode === "activityDetail") {
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm text-neutral-200 font-semibold">
+                <label className="text-sm text-slate-500 font-semibold">
                   Indoor Courts
                 </label>
                 <Input
@@ -1714,12 +1904,12 @@ if (viewMode === "activityDetail") {
                   min={0}
                   value={indoorCourts}
                   onChange={(e) => setIndoorCourts(Number(e.target.value))}
-                  className="bg-neutral-950 border-neutral-600 rounded-xl text-white font-semibold"
+                  className="sport-input font-semibold"
                 />
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm text-neutral-200 font-semibold">
+                <label className="text-sm text-slate-500 font-semibold">
                   Outdoor Courts
                 </label>
                 <Input
@@ -1727,24 +1917,24 @@ if (viewMode === "activityDetail") {
                   min={0}
                   value={outdoorCourts}
                   onChange={(e) => setOutdoorCourts(Number(e.target.value))}
-                  className="bg-neutral-950 border-neutral-600 rounded-xl text-white font-semibold"
+                  className="sport-input font-semibold"
                 />
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm text-neutral-200 font-semibold">
+                <label className="text-sm text-slate-500 font-semibold">
                   Start Time
                 </label>
                 <Input
                   type="time"
                   value={startTime}
                   onChange={(e) => setStartTime(e.target.value)}
-                  className="bg-neutral-950 border-neutral-600 rounded-xl text-white font-semibold"
+                  className="sport-input font-semibold"
                 />
               </div>
 
               <div className="space-y-2">
-  <label className="text-sm text-neutral-200 font-semibold opacity-0">
+  <label className="text-sm text-slate-500 font-semibold opacity-0">
     Actions
   </label>
 
@@ -1754,7 +1944,7 @@ if (viewMode === "activityDetail") {
 
 
 
-            <div className="rounded-2xl bg-neutral-950 border border-neutral-800 p-4 text-sm text-lime-300 font-semibold">
+            <div className="rounded-lg border border-emerald-100 bg-emerald-50 p-4 text-sm text-emerald-700 font-extrabold">
               Total players:{" "}
               {activeCategory.numberOfGroups * activeCategory.playersPerGroup} |
               Main Draw:{" "}
@@ -1768,48 +1958,74 @@ if (viewMode === "activityDetail") {
           </CardContent>
         </Card>
 
-        <Card className="bg-neutral-900 border-neutral-700 rounded-3xl text-white">
+        <Card className="sport-card">
   <CardContent className="p-6">
-    <h3 className="text-xl font-bold mb-4">
+<div className="space-y-2">
+  <label className="text-sm text-slate-500 font-semibold">
+    Acceptance List - {activeCategory.name}
+  </label>
+
+  <textarea
+    value={acceptanceInput}
+    onChange={(e) => setAcceptanceInput(e.target.value)}
+    placeholder="Paste player names here, one name per line..."
+    className="w-full min-h-[160px] rounded-lg border border-slate-200 bg-white p-4 font-semibold text-slate-950 shadow-sm placeholder:text-slate-500/70"
+  />
+</div>
+
+    <h3 className="mt-6 mb-4 text-xl font-extrabold">
       Tournament Actions
     </h3>
 
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+    <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+      <Button
+  onClick={generateSeededGroupDraw}
+  className="h-12 rounded-lg bg-violet-600 hover:bg-violet-700 text-white font-bold"
+>
+  Generate Seeded Group Draw
+</Button>
+
       <Button
         onClick={generateTournament}
-        className="h-12 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-bold"
+        className="h-12 sport-button-dark"
       >
         Generate Tournament
       </Button>
 
       <Button
         onClick={autoAssignCourts}
-        className="h-12 rounded-2xl bg-lime-600 hover:bg-lime-700 text-black font-bold"
+        className="h-12 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
       >
         Auto Assign Courts
       </Button>
 
       <Button
         onClick={generateOrderOfPlay}
-        className="h-12 rounded-2xl bg-yellow-400 hover:bg-yellow-500 text-black font-bold"
+        className="h-12 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold"
       >
         Generate Order Of Play
       </Button>
+      
+      
     </div>
   </CardContent>
 </Card>
   </>
 )}
 
-<div className="flex flex-wrap gap-2">
+<div className={isPlayerView ? "player-category-tabs" : "flex flex-wrap gap-2"}>
   {categories.map((cat) => (
     <Button
       key={cat.id}
       onClick={() => setActiveCategoryId(cat.id)}
       className={
-        activeCategory.id === cat.id
-          ? "rounded-2xl bg-lime-500 text-black font-bold"
-          : "rounded-2xl bg-neutral-800 text-white font-bold"
+        isPlayerView
+          ? activeCategory.id === cat.id
+            ? "player-category-tab player-category-tab-active"
+            : "player-category-tab"
+          : activeCategory.id === cat.id
+          ? "rounded-lg bg-emerald-600 text-white font-bold"
+          : "rounded-lg bg-white text-slate-700 font-bold ring-1 ring-slate-200 hover:bg-slate-50"
       }
     >
       {cat.name}
@@ -1817,28 +2033,66 @@ if (viewMode === "activityDetail") {
   ))}
 </div>
 
+{isPlayerView && (
+  <div className="player-section-tabs">
+    {[
+      ["groups", "Groups"],
+      ["draw", "Draw"],
+      ["order", "Order"],
+      ["rank", "Rank"],
+    ].map(([section, label]) => (
+      <button
+        key={section}
+        type="button"
+        onClick={() => setPlayerActiveSection(section as PlayerSection)}
+        className={
+          playerActiveSection === section
+            ? "player-section-tab player-section-tab-active"
+            : "player-section-tab"
+        }
+      >
+        {label}
+      </button>
+    ))}
+  </div>
+)}
+
        <div key={activeCategory.id} className="category-fade space-y-8">
         {viewMode === "player" && (
-  <Card className="bg-neutral-900 border-neutral-700 rounded-3xl text-white">
-    <CardContent className="p-4 space-y-3">
-      <Input
-        placeholder="Search player name or code..."
-        value={playerSearch}
-        onChange={(e) => setPlayerSearch(e.target.value)}
-        className="bg-neutral-950 border-neutral-600 rounded-xl text-white"
-      />
+  <div className="space-y-3">
+      <div
+        className={
+          isPlayerView
+            ? "relative rounded-3xl border border-lime-900/30 bg-neutral-950/70 shadow-lg shadow-lime-950/20 backdrop-blur-md transition focus-within:border-lime-400 focus-within:ring-2 focus-within:ring-lime-400/20 focus-within:shadow-lime-400/10"
+            : "relative"
+        }
+      >
+        {isPlayerView && (
+          <Search className="pointer-events-none absolute left-5 top-1/2 size-4 -translate-y-1/2 text-lime-400/75" />
+        )}
+        <Input
+          placeholder="Search player name or code..."
+          value={playerSearch}
+          onChange={(e) => setPlayerSearch(e.target.value)}
+          className={
+            isPlayerView
+              ? "h-14 border-0 bg-transparent pl-12 pr-5 font-medium text-white shadow-none placeholder:text-neutral-400 focus-visible:border-transparent focus-visible:ring-0"
+              : "sport-input h-11"
+          }
+        />
+      </div>
 
       {playerSearch.trim() !== "" &&
         playerSuggestions.length > 0 && (
-          <div className="bg-neutral-950 border border-neutral-700 rounded-2xl overflow-hidden">
+          <div className={isPlayerView ? "overflow-hidden rounded-lg border border-white/15 bg-white/[0.04]" : "overflow-hidden rounded-lg border border-slate-200 bg-slate-50"}>
             {playerSuggestions.map(([code, name]) => (
               <button
                 key={code}
                 type="button"
                 onClick={() => setPlayerSearch(name || code)}
-                className="w-full text-left px-4 py-2 hover:bg-neutral-800 text-white font-semibold"
+                className={isPlayerView ? "w-full text-left px-4 py-2 text-white hover:bg-white/10 font-semibold" : "w-full text-left px-4 py-2 text-slate-950 hover:bg-slate-200 font-semibold"}
               >
-                <span className="text-lime-300 mr-2">
+                <span className="text-emerald-700 mr-2">
                   {code}
                 </span>
                 {name || code}
@@ -1848,22 +2102,21 @@ if (viewMode === "activityDetail") {
         )}
 
       {!playerFound && (
-        <div className="text-red-400 font-semibold text-sm">
+        <div className="text-red-600 font-semibold text-sm">
           No player found for "{playerSearch}"
         </div>
       )}
-    </CardContent>
-  </Card>
+  </div>
 )}
        
   {(mainChampion || loserChampion) && (
     <div className="grid md:grid-cols-2 gap-4">
       {mainChampion && (
-        <Card className="bg-green-950/60 border-green-600 rounded-3xl text-white">
+        <Card className={isPlayerView ? "rounded-lg border border-emerald-300/25 bg-emerald-400/10 text-white" : "rounded-lg border-emerald-200 bg-emerald-50 text-slate-950"}>
           <CardContent className="p-5 flex gap-3 items-center text-lg">
-            <Trophy className="text-yellow-300" />
+            <Trophy className="text-amber-600" />
             Main Champion:
-            <b className="text-yellow-300">
+            <b className="text-emerald-700">
               {playerName(activeCategory.players, mainChampion)}
             </b>
           </CardContent>
@@ -1871,11 +2124,11 @@ if (viewMode === "activityDetail") {
       )}
 
       {loserChampion && (
-        <Card className="bg-purple-950/60 border-purple-600 rounded-3xl text-white">
+        <Card className={isPlayerView ? "rounded-lg border border-cyan-300/25 bg-cyan-400/10 text-white" : "rounded-lg border-violet-200 bg-violet-50 text-slate-950"}>
           <CardContent className="p-5 flex gap-3 items-center text-lg">
-            <Trophy className="text-yellow-300" />
+            <Trophy className="text-amber-600" />
             Losers Pool Champion:
-            <b className="text-yellow-300">
+            <b className="text-violet-800">
               {playerName(activeCategory.players, loserChampion)}
             </b>
           </CardContent>
@@ -1883,18 +2136,19 @@ if (viewMode === "activityDetail") {
       )}
     </div>
   )}
+          {viewMode === "admin" && (
           <section>
   <button
     onClick={() => togglePlayerSection("grouping")}
-    className="w-full flex justify-between items-center mb-4"
+    className="w-full flex justify-between items-center mb-4 rounded-lg border border-slate-200 bg-white px-4 py-3 text-left"
   >
-    <div className="flex items-center gap-2 text-2xl font-bold text-white">
+    <div className="flex items-center gap-2 sport-section-title">
       <Users />
       <span>1. Grouping Draw</span>
     </div>
 
-    <span className="text-xl text-lime-300">
-      {openPlayerSections.grouping ? "▲" : "▼"}
+    <span className="text-xl text-emerald-700">
+      {openPlayerSections.grouping ? "-" : "+"}
     </span>
   </button>
 
@@ -1903,10 +2157,10 @@ if (viewMode === "activityDetail") {
       {groups.map((g) => (
         <Card
           key={g}
-          className="bg-neutral-900 border-neutral-700 rounded-3xl text-white"
+          className="sport-card"
         >
           <CardContent className="p-5 space-y-3">
-            <h3 className="font-bold text-xl text-white">
+            <h3 className="font-extrabold text-xl text-slate-950">
               Group {g}
             </h3>
 
@@ -1917,18 +2171,13 @@ if (viewMode === "activityDetail") {
 
                 return (
   <div key={code} className="flex items-center gap-2">
-    <span className="w-10 text-sm text-lime-300 font-bold">
+    <span className="w-10 rounded-md bg-emerald-50 px-2 py-1 text-center text-sm text-emerald-700 font-bold">
       {code}
     </span>
 
-    {viewMode === "player" ? (
-      <div className="text-white font-semibold">
-        {activeCategory.players[code]?.trim() || code}
-      </div>
-    ) : (
       <Input
         value={activeCategory.players[code] || ""}
-        disabled={isPlayerView}
+        disabled={false}
         onChange={(e) =>
           updateActiveCategory({
             players: {
@@ -1965,9 +2214,8 @@ if (viewMode === "activityDetail") {
           });
         }}
         placeholder={`Player ${code}`}
-        className="bg-neutral-950 border-neutral-600 rounded-xl text-white placeholder:text-neutral-400 font-semibold"
+        className="sport-input font-semibold"
       />
-    )}
   </div>
 );
               }
@@ -1978,30 +2226,40 @@ if (viewMode === "activityDetail") {
     </div>
   )}
 </section>
+)}
 
-  <section>
+  <section className={showPlayerSection("groups") ? "" : "hidden"}>
+  {isPlayerView ? (
+    <div className="player-panel-title">
+      <h2 className="text-xl font-medium">Group Matches</h2>
+      <span className="text-sm font-extrabold">
+        Group {groups[0] || ""}
+      </span>
+    </div>
+  ) : (
   <button
     onClick={() => togglePlayerSection("matches")}
-    className="w-full flex justify-between items-center mb-4"
+    className="w-full flex justify-between items-center mb-4 rounded-lg border border-slate-200 bg-white px-4 py-3 text-left"
   >
-    <h2 className="text-2xl font-bold text-white">
+    <h2 className="sport-section-title">
       2. Group Matches, Court & Ranking
     </h2>
 
-    <span className="text-xl text-lime-300">
-      {openPlayerSections.matches ? "▲" : "▼"}
+    <span className="text-xl text-emerald-700">
+      {openPlayerSections.matches ? "-" : "+"}
     </span>
   </button>
+  )}
 
-  {openPlayerSections.matches && (
-    <div className="grid lg:grid-cols-4 gap-4">
+  {(isPlayerView || openPlayerSections.matches) && (
+    <div className={isPlayerView ? "grid gap-2" : "grid lg:grid-cols-4 gap-4"}>
       {groups.map((g) => (
         <Card
           key={g}
-          className="bg-neutral-900 border-neutral-700 rounded-3xl text-white"
+          className={isPlayerView ? "border-0 bg-transparent py-0 text-white shadow-none ring-0" : "sport-card"}
         >
-          <CardContent className="p-5 space-y-4">
-            <h3 className="font-bold text-xl text-white">
+          <CardContent className={isPlayerView ? "p-0 space-y-2" : "p-5 space-y-4"}>
+            <h3 className={isPlayerView ? "sr-only" : "font-extrabold text-xl text-slate-950"}>
               Group {g}
             </h3>
 
@@ -2017,49 +2275,111 @@ if (viewMode === "activityDetail") {
       searchedPlayerCodes.includes(m.p2)
     );
   })
-                .map((m) => (
+                .map((m) => {
+                  const s1 = m.s1 === "" ? "-" : m.s1;
+                  const s2 = m.s2 === "" ? "-" : m.s2;
+                  const score1 = Number(m.s1);
+                  const score2 = Number(m.s2);
+                  const complete =
+                    m.s1 !== "" &&
+                    m.s2 !== "" &&
+                    isMatchComplete(score1, score2, activeCategory.matchFormat);
+                  const p1Win = complete && score1 > score2;
+                  const p2Win = complete && score2 > score1;
+                  const statusClass =
+                    m.status === "Finished"
+                      ? "player-badge-finished"
+                      : m.status === "On Court"
+                      ? "player-badge-live"
+                      : "player-badge-waiting";
+
+                  if (isPlayerView) {
+                    return (
+                      <article key={m.id} className="player-match-card">
+                        <div className="mb-3 flex items-center justify-between gap-3">
+                          <span className="text-xs font-extrabold text-white">
+                            {m.group}
+                            {m.p1.replace(m.group, "")} - Round {m.round}
+                          </span>
+                          <div className="flex flex-wrap justify-end gap-2">
+                            <span className="player-badge player-badge-court">
+                              {m.court || "Court TBA"}
+                            </span>
+                            <span className={`player-badge ${statusClass}`}>
+                              {m.status}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="grid gap-2">
+                          <div
+                            className={
+                              p1Win
+                                ? "player-score-row player-score-row-winner"
+                                : "player-score-row"
+                            }
+                          >
+                            <span>{playerName(activeCategory.players, m.p1)}</span>
+                            <span>{s1}</span>
+                          </div>
+                          <div
+                            className={
+                              p2Win
+                                ? "player-score-row player-score-row-winner"
+                                : "player-score-row"
+                            }
+                          >
+                            <span>{playerName(activeCategory.players, m.p2)}</span>
+                            <span>{s2}</span>
+                          </div>
+                        </div>
+                      </article>
+                    );
+                  }
+
+                  return (
                   <div
                     key={m.id}
-                    className="bg-neutral-950 p-3 rounded-2xl space-y-2 text-neutral-100 font-medium"
+                    className="sport-match-card space-y-2 font-medium"
                   >
-                            <div className="text-xs text-neutral-300 font-semibold">
-  Group {m.group} • Round {m.round}
+                            <div className="text-xs text-slate-500 font-semibold">
+  Group {m.group} - Round {m.round}
 </div>
 
                             <div className="grid grid-cols-[1fr_56px] gap-2 items-center">
-  <div className="text-white font-semibold">
+  <div className="text-slate-950 font-semibold">
     {playerName(activeCategory.players, m.p1)}
   </div>
 
   <Input
     type="number"
     value={m.s1}
-    disabled={viewMode === "player"}
+    disabled={false}
     onChange={(e) =>
       updateGroupScore(m.id, "s1", e.target.value)
     }
-    className="bg-neutral-900 border-neutral-600 rounded-xl text-white font-bold text-center"
+    className="sport-input font-bold text-center"
   />
 
-  <div className="text-white font-semibold">
+  <div className="text-slate-950 font-semibold">
     {playerName(activeCategory.players, m.p2)}
   </div>
 
   <Input
     type="number"
     value={m.s2}
-    disabled={viewMode === "player"}
+    disabled={false}
     onChange={(e) =>
       updateGroupScore(m.id, "s2", e.target.value)
     }
-    className="bg-neutral-900 border-neutral-600 rounded-xl text-white font-bold text-center"
+    className="sport-input font-bold text-center"
   />
 </div>
 
                             <div className="grid grid-cols-2 gap-2 mt-2">
                               <select
                                  value={m.court}
-  disabled={viewMode === "player"}
+  disabled={false}
   onChange={(e) =>
     updateGroupMatchMeta(
       m.id,
@@ -2067,7 +2387,7 @@ if (viewMode === "activityDetail") {
       e.target.value
     )
   }
-                                className="bg-neutral-900 border border-neutral-600 rounded-xl text-white font-semibold px-2 py-2"
+                                className="sport-select"
                               >
                                 <option value="">Select Court</option>
                                 {courts.map((court) => (
@@ -2079,7 +2399,7 @@ if (viewMode === "activityDetail") {
 
                               <select
                                 value={m.status}
-  disabled={viewMode === "player"}
+  disabled={false}
   onChange={(e) =>
     updateGroupMatchMeta(
       m.id,
@@ -2087,7 +2407,7 @@ if (viewMode === "activityDetail") {
       e.target.value
     )
   }
-                                className="bg-neutral-900 border border-neutral-600 rounded-xl text-white font-semibold px-2 py-2"
+                                className="sport-select"
                               >
                                 <option value="Waiting">Waiting</option>
                                 <option value="On Court">On Court</option>
@@ -2095,14 +2415,16 @@ if (viewMode === "activityDetail") {
                               </select>
                             </div>
                           </div>
-                        ))}
+                  );
+                })}
                     </div>
 
-                    <div className="border-t border-neutral-700 pt-3">
-                      <h4 className="font-bold mb-2 text-white">Ranking</h4>
+                    {!isPlayerView && (
+                    <div className="border-t border-slate-200 pt-3">
+                      <h4 className="font-bold mb-2 text-slate-950">Ranking</h4>
 
                       <table className="w-full text-xs">
-                        <thead className="text-neutral-200">
+                        <thead className="text-slate-500">
                           <tr>
                             <th className="text-left">#</th>
                             <th className="text-left">Player</th>
@@ -2117,8 +2439,8 @@ if (viewMode === "activityDetail") {
                               key={p.code}
                               className={
                                 idx < activeCategory.topQualify
-                                  ? "text-lime-300 font-bold"
-                                  : "text-yellow-300 font-semibold"
+                                  ? "text-emerald-700 font-bold"
+                                  : "text-amber-600 font-semibold"
                               }
                             >
                               <td>{idx + 1}</td>
@@ -2132,6 +2454,7 @@ if (viewMode === "activityDetail") {
                         </tbody>
                       </table>
                     </div>
+                    )}
                   </CardContent>
                 </Card>
                            ))}
@@ -2140,21 +2463,23 @@ if (viewMode === "activityDetail") {
 </section>
 
 
-          <section>
+          <section className={showPlayerSection("draw") ? "" : "hidden"}>
+  {!isPlayerView && (
   <button
     onClick={() => togglePlayerSection("main")}
-    className="w-full flex justify-between items-center mb-4"
+    className="w-full flex justify-between items-center mb-4 rounded-lg border border-slate-200 bg-white px-4 py-3 text-left"
   >
-    <h2 className="text-2xl font-bold text-white">
+    <h2 className="sport-section-title">
       3. Main Draw
     </h2>
 
-    <span className="text-xl text-lime-300">
-      {openPlayerSections.main ? "▲" : "▼"}
+    <span className="text-xl text-emerald-700">
+      {openPlayerSections.main ? "-" : "+"}
     </span>
   </button>
+  )}
 
-  {openPlayerSections.main && (
+  {!isPlayerView && openPlayerSections.main && (
     <DrawSection
       title=""
       matches={mainMatches}
@@ -2167,25 +2492,28 @@ if (viewMode === "activityDetail") {
       updateDrawMeta={updateDrawMeta}
       matchFormat={activeCategory.matchFormat}
       playerSearch={playerSearch}
+      playerMode={isPlayerView}
     />
   )}
 </section>
 
-<section>
+<section className={showPlayerSection("draw") ? "" : "hidden"}>
+  {!isPlayerView && (
   <button
     onClick={() => togglePlayerSection("loser")}
-    className="w-full flex justify-between items-center mb-4"
+    className="w-full flex justify-between items-center mb-4 rounded-lg border border-slate-200 bg-white px-4 py-3 text-left"
   >
-    <h2 className="text-2xl font-bold text-white">
+    <h2 className="sport-section-title">
       4. Losers Pool
     </h2>
 
-    <span className="text-xl text-lime-300">
-      {openPlayerSections.loser ? "▲" : "▼"}
+    <span className="text-xl text-emerald-700">
+      {openPlayerSections.loser ? "-" : "+"}
     </span>
   </button>
+  )}
 
-  {openPlayerSections.loser && (
+  {!isPlayerView && openPlayerSections.loser && (
     <DrawSection
       title=""
       matches={loserMatches}
@@ -2198,23 +2526,143 @@ if (viewMode === "activityDetail") {
       updateDrawMeta={updateDrawMeta}
       matchFormat={activeCategory.matchFormat}
       playerSearch={playerSearch}
+      playerMode={isPlayerView}
     />
   )}
 </section>
 
-          <section>
-            <h2 className="text-2xl font-bold mb-4 text-white">
-              Order of Play
-            </h2>
+{isPlayerView && showPlayerSection("draw") && (
+  <section className="space-y-3">
+    <div className="player-draw-subtabs">
+      <button
+        type="button"
+        onClick={() => setPlayerDrawTab("main")}
+        className={
+          playerDrawTab === "main"
+            ? "player-draw-subtab player-draw-subtab-active"
+            : "player-draw-subtab"
+        }
+      >
+        Main Draw
+      </button>
+      <button
+        type="button"
+        onClick={() => setPlayerDrawTab("loser")}
+        className={
+          playerDrawTab === "loser"
+            ? "player-draw-subtab player-draw-subtab-active"
+            : "player-draw-subtab"
+        }
+      >
+        Losers Pool
+      </button>
+    </div>
 
+    <div className="player-panel-title">
+      <h2 className="text-xl font-medium">
+        {playerDrawTab === "main" ? "Main Draw" : "Losers Pool"}
+      </h2>
+      <span className="text-sm font-extrabold">
+        {playerDrawTab === "main" ? "Knockout stage" : "Consolation"}
+      </span>
+    </div>
+
+    <PlayerBracket
+      matches={playerDrawTab === "main" ? mainMatches : loserMatches}
+      scores={
+        playerDrawTab === "main"
+          ? activeCategory.mainScores
+          : activeCategory.loserScores
+      }
+      meta={
+        playerDrawTab === "main"
+          ? activeCategory.mainMeta
+          : activeCategory.loserMeta
+      }
+      players={activeCategory.players}
+      matchFormat={activeCategory.matchFormat}
+    />
+  </section>
+)}
+
+          <section className={showPlayerSection("order") ? "" : "hidden"}>
+            {isPlayerView ? (
+              <div className="player-panel-title">
+                <h2 className="text-xl font-medium">Order of Play</h2>
+                <span className="text-sm font-extrabold">Today</span>
+              </div>
+            ) : (
+              <h2 className="sport-section-title mb-4">
+                Order of Play
+              </h2>
+            )}
+
+            {isPlayerView ? (
+              <div className="grid gap-2">
+                {orderOfPlay
+                  .filter((match) => {
+                    const search = playerSearch.trim().toLowerCase();
+                    if (!search) return true;
+
+                    if (match.categoryId !== activeCategory.id) return false;
+                    if (!match.p1 || !match.p2) return false;
+                    if (match.p1 === "TBD" || match.p2 === "TBD") return false;
+
+                    const p1Name = (
+                      activeCategory.players[match.p1] || ""
+                    ).toLowerCase();
+                    const p2Name = (
+                      activeCategory.players[match.p2] || ""
+                    ).toLowerCase();
+
+                    return (
+                      match.p1.toLowerCase() === search ||
+                      match.p2.toLowerCase() === search ||
+                      p1Name === search ||
+                      p2Name === search
+                    );
+                  })
+                  .map((match) => {
+                    const matchCategory =
+                      categories.find((cat) => cat.id === match.categoryId) ||
+                      activeCategory;
+                    const courtNumber =
+                      match.court.match(/\d+/)?.[0] ||
+                      match.court.replace(/court/i, "").trim() ||
+                      "-";
+
+                    return (
+                      <article key={match.id} className="player-order-card">
+                        <div className="player-order-court">
+                          <span>Court</span>
+                          <strong>{courtNumber}</strong>
+                        </div>
+
+                        <div className="min-w-0 py-1">
+                          <time className="text-sm font-extrabold text-cyan-300">
+                            {match.time}
+                          </time>
+                          <h3 className="mt-2 text-sm font-semibold leading-snug text-white">
+                            {match.title || match.category}
+                          </h3>
+                          <p className="mt-2 text-xs font-medium leading-5 text-white">
+                            {playerName(matchCategory.players, match.p1)} vs{" "}
+                            {playerName(matchCategory.players, match.p2)}
+                          </p>
+                        </div>
+                      </article>
+                    );
+                  })}
+              </div>
+            ) : (
             <div className="grid md:grid-cols-2 lg:grid-cols-5 gap-4">
               {courts.map((court) => (
                 <Card
                   key={court.id}
-                  className="bg-neutral-900 border-neutral-700 rounded-3xl text-white"
+                  className="sport-card"
                 >
                   <CardContent className="p-5 space-y-3">
-                    <h3 className="font-bold text-xl text-lime-300">
+                    <h3 className="font-extrabold text-xl text-emerald-700">
                       {court.name}
                     </h3>
 
@@ -2273,7 +2721,7 @@ const loserScore = matchCategory.loserScores[match.id];
                         return (
                           <div
                             key={match.id}
-                            className="bg-neutral-950 rounded-2xl p-3 space-y-1 border border-neutral-800"
+                            className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-1"
                           >
                            {viewMode === "admin" ? (
   <div className="grid grid-cols-2 gap-2">
@@ -2283,7 +2731,7 @@ const loserScore = matchCategory.loserScores[match.id];
       onChange={(e) =>
         updateOrderOfPlay(match.id, "time", e.target.value)
       }
-      className="bg-neutral-900 border-neutral-600 rounded-xl text-white text-xs"
+      className="sport-input text-xs"
     />
 
     <select
@@ -2291,7 +2739,7 @@ const loserScore = matchCategory.loserScores[match.id];
       onChange={(e) =>
         updateOrderOfPlay(match.id, "court", e.target.value)
       }
-      className="bg-neutral-900 border border-neutral-600 rounded-xl text-white text-xs px-2"
+      className="sport-select text-xs"
     >
       {courts.map((court) => (
         <option key={court.id} value={court.name}>
@@ -2301,16 +2749,16 @@ const loserScore = matchCategory.loserScores[match.id];
     </select>
   </div>
 ) : (
-  <div className="text-xs text-cyan-300 font-bold">
+  <div className={isPlayerView ? "text-xs text-cyan-300 font-extrabold" : "text-xs text-emerald-700 font-bold"}>
     {match.time}
   </div>
 )}
 
-                            <div className="text-xs text-yellow-300 font-bold">
+                            <div className={isPlayerView ? "text-xs text-yellow-300 font-bold" : "text-xs text-amber-600 font-bold"}>
                               Match {match.matchNo} | {match.category}
                             </div>
 
-                            <div className="text-sm text-neutral-300">
+                            <div className={isPlayerView ? "text-sm text-white/65" : "text-sm text-slate-500"}>
   {match.title}
 </div>
 
@@ -2318,40 +2766,44 @@ const loserScore = matchCategory.loserScores[match.id];
                               <span
   className={
     isSearchedPlayer(matchCategory.players, match.p1, playerSearch)
-      ? "text-yellow-300 font-extrabold underline"
+      ? "text-amber-600 font-extrabold underline"
       : p1Win
-      ? "text-lime-300 font-bold"
+      ? "text-emerald-700 font-bold"
       : p2Win
-      ? "text-red-400 font-bold"
-      : "text-white font-bold"
+      ? "text-red-600 font-bold"
+      : isPlayerView
+      ? "text-white font-bold"
+      : "text-slate-950 font-bold"
   }
 >
                                 {playerName(matchCategory.players, match.p1)}
                               </span>
 
-                              <span className="text-white font-bold">
+                              <span className={isPlayerView ? "text-white font-bold" : "text-slate-950 font-bold"}>
                                 {score1}
                               </span>
                             </div>
 
-                            <div className="text-neutral-500 text-xs">vs</div>
+                            <div className={isPlayerView ? "text-white/40 text-xs" : "text-slate-500/70 text-xs"}>vs</div>
 
                             <div className="flex items-center justify-between gap-2">
                               <span
   className={
     isSearchedPlayer(matchCategory.players, match.p2, playerSearch)
-      ? "text-yellow-300 font-extrabold underline"
+      ? "text-amber-600 font-extrabold underline"
       : p2Win
-      ? "text-lime-300 font-bold"
+      ? "text-emerald-700 font-bold"
       : p1Win
-      ? "text-red-400 font-bold"
-      : "text-white font-bold"
+      ? "text-red-600 font-bold"
+      : isPlayerView
+      ? "text-white font-bold"
+      : "text-slate-950 font-bold"
   }
 >
                                 {playerName(matchCategory.players, match.p2)}
                               </span>
 
-                              <span className="text-white font-bold">
+                              <span className={isPlayerView ? "text-white font-bold" : "text-slate-950 font-bold"}>
                                 {score2}
                               </span>
                             </div>
@@ -2363,6 +2815,48 @@ const loserScore = matchCategory.loserScores[match.id];
                 
               ))}
               
+            </div>
+            )}
+          </section>
+          <section className={isPlayerView && showPlayerSection("rank") ? "" : "hidden"}>
+            <div className="player-panel-title">
+              <h2 className="text-xl font-medium">Group Ranking</h2>
+              <span className="text-sm font-extrabold">
+                Top {activeCategory.topQualify} qualify
+              </span>
+            </div>
+
+            <div className="grid gap-2">
+              {groups.map((g) => (
+                <div key={g} className="player-dark-card p-3">
+                  <div className="mb-2 flex items-center justify-between">
+                    <h3 className="font-extrabold">Group {g}</h3>
+                    <span className="text-xs font-bold text-white/55">
+                      W / Diff
+                    </span>
+                  </div>
+
+                  <div className="grid gap-1">
+                    {standings[g]?.map((p, idx) => (
+                      <div
+                        key={p.code}
+                        className={
+                          idx < activeCategory.topQualify
+                            ? "grid min-h-9 grid-cols-[38px_1fr_42px_52px] items-center gap-2 rounded-md bg-lime-400/12 px-2 text-sm font-extrabold text-lime-300"
+                            : "grid min-h-9 grid-cols-[38px_1fr_42px_52px] items-center gap-2 rounded-md bg-white/[0.04] px-2 text-sm font-bold text-white/70"
+                        }
+                      >
+                        <span>#{idx + 1}</span>
+                        <strong className="truncate">
+                          {playerName(activeCategory.players, p.code)}
+                        </strong>
+                        <span>{p.win}W</span>
+                        <span>{p.diff > 0 ? `+${p.diff}` : p.diff}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
           </section>
         </div>
@@ -2385,6 +2879,7 @@ function DrawSection({
   updateDrawMeta,
   matchFormat,
   playerSearch,
+  playerMode = false,
 }: {
   title: string;
   matches: DrawMatch[];
@@ -2407,6 +2902,7 @@ function DrawSection({
   ) => void;
   matchFormat: MatchFormat;
   playerSearch: string;
+  playerMode?: boolean;
 }) {
   const rounds = [...new Set(matches.map((m) => m.round))];
 
@@ -2415,12 +2911,12 @@ function DrawSection({
   if (matches.length === 0) {
   return (
     <section>
-      <h2 className="text-2xl font-bold mb-4 text-white">
+      <h2 className="sport-section-title mb-4">
         {title}
       </h2>
 
-      <Card className="bg-neutral-900 border-neutral-700 rounded-3xl text-white">
-        <CardContent className="p-5 text-neutral-300 font-semibold">
+      <Card className={playerMode ? "player-dark-card" : "sport-card"}>
+        <CardContent className={playerMode ? "p-5 text-white/65 font-semibold" : "p-5 text-slate-500 font-semibold"}>
           Not enough players for this draw.
         </CardContent>
       </Card>
@@ -2430,26 +2926,26 @@ function DrawSection({
 
   return (
     <section>
-      <h2 className="text-2xl font-bold mb-4 text-white">{title}</h2>
+      {title && <h2 className="sport-section-title mb-4">{title}</h2>}
 
       <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
         {rounds.map((round) => (
           <Card
             key={round}
-            className="bg-neutral-900 border-neutral-700 rounded-3xl text-white"
+            className={playerMode ? "player-dark-card" : "sport-card"}
           >
             <CardContent className="p-5 space-y-3">
-              <h3 className="font-bold text-lg text-white">{round}</h3>
+              <h3 className={playerMode ? "font-extrabold text-lg text-white" : "font-extrabold text-lg text-slate-950"}>{round}</h3>
 
               {matches
                 .filter((m) => m.round === round)
                 .map((m) => (
                   <div
                     key={m.id}
-                    className="bg-neutral-950 p-3 rounded-2xl space-y-2"
+                    className={playerMode ? "player-match-card space-y-2" : "sport-match-card space-y-2"}
                   >
-                    <div className="text-xs text-neutral-300 font-semibold">
-  {round} • Match {
+                    <div className={playerMode ? "text-xs text-white/60 font-semibold" : "text-xs text-slate-500 font-semibold"}>
+  {round} - Match {
     matches
       .filter((x) => x.round === round)
       .findIndex((x) => x.id === m.id) + 1
@@ -2462,8 +2958,10 @@ function DrawSection({
                       <div
   className={
     isSearchedPlayer(players, m.p1, playerSearch)
-      ? "text-yellow-300 font-extrabold underline"
-      : "text-white font-semibold"
+      ? "text-amber-600 font-extrabold underline"
+      : playerMode
+      ? "text-white font-semibold"
+      : "text-slate-950 font-semibold"
   }
 >
   {playerName(players, m.p1)}
@@ -2476,14 +2974,16 @@ function DrawSection({
                         onChange={(e) =>
                           updateDrawScore(drawType, m.id, "s1", e.target.value)
                         }
-                        className="bg-neutral-900 border-neutral-600 rounded-xl text-white font-bold disabled:opacity-40"
+                        className={playerMode ? "sport-input bg-white/10 text-white font-bold disabled:opacity-60" : "sport-input font-bold disabled:opacity-40"}
                       />
 
                       <div
   className={
     isSearchedPlayer(players, m.p2, playerSearch)
-      ? "text-yellow-300 font-extrabold underline"
-      : "text-white font-semibold"
+      ? "text-amber-600 font-extrabold underline"
+      : playerMode
+      ? "text-white font-semibold"
+      : "text-slate-950 font-semibold"
   }
 >
   {playerName(players, m.p2)}
@@ -2496,7 +2996,7 @@ function DrawSection({
                         onChange={(e) =>
                           updateDrawScore(drawType, m.id, "s2", e.target.value)
                         }
-                        className="bg-neutral-900 border-neutral-600 rounded-xl text-white font-bold disabled:opacity-40"
+                        className={playerMode ? "sport-input bg-white/10 text-white font-bold disabled:opacity-60" : "sport-input font-bold disabled:opacity-40"}
                       />
                     </div>
 
@@ -2511,7 +3011,7 @@ function DrawSection({
                             e.target.value
                           )
                         }
-                        className="bg-neutral-900 border border-neutral-600 rounded-xl text-white font-semibold px-2 py-2"
+                        className={playerMode ? "sport-select bg-white/10 text-white" : "sport-select"}
                       >
                         <option value="">Select Court</option>
                         {courts.map((court) => (
@@ -2531,7 +3031,7 @@ function DrawSection({
                             e.target.value
                           )
                         }
-                        className="bg-neutral-900 border border-neutral-600 rounded-xl text-white font-semibold px-2 py-2"
+                        className={playerMode ? "sport-select bg-white/10 text-white" : "sport-select"}
                       >
                         <option value="Waiting">Waiting</option>
                         <option value="On Court">On Court</option>
@@ -2539,7 +3039,7 @@ function DrawSection({
                       </select>
                     </div>
 
-                    <div className="text-sm text-lime-300 font-bold">
+                    <div className={playerMode ? "text-sm text-lime-300 font-bold" : "text-sm text-emerald-700 font-bold"}>
                       Winner:{" "}
                       {playerName(players, getWinner(m, scores, matchFormat))}
                     </div>
@@ -2553,25 +3053,158 @@ function DrawSection({
   );
 }
 
+function PlayerBracket({
+  matches,
+  scores,
+  meta,
+  players,
+  matchFormat,
+}: {
+  matches: DrawMatch[];
+  scores: ScoreMap;
+  meta: MatchMeta;
+  players: PlayerMap;
+  matchFormat: MatchFormat;
+}) {
+  const roundOrder = [
+    "Round of 32",
+    "Round of 16",
+    "Quarter Final",
+    "Semi Final",
+    "Final",
+  ];
+  const rounds = [...new Set(matches.map((m) => m.round))].sort(
+    (a, b) => roundOrder.indexOf(a) - roundOrder.indexOf(b)
+  );
+
+  if (matches.length === 0) {
+    return (
+      <div className="player-dark-card p-4 text-sm font-semibold text-white/65">
+        Not enough players for this draw.
+      </div>
+    );
+  }
+
+  return (
+    <div className="player-bracket-scroll">
+      <div
+        className="player-bracket-grid"
+        style={{ gridTemplateColumns: `repeat(${rounds.length}, 210px)` }}
+      >
+        {rounds.map((round, roundIndex) => (
+          <div
+            key={round}
+            className={
+              roundIndex === rounds.length - 1
+                ? "player-bracket-round player-bracket-round-final"
+                : "player-bracket-round"
+            }
+          >
+            {matches
+              .filter((m) => m.round === round)
+              .map((match) => (
+                <PlayerBracketCard
+                  key={match.id}
+                  match={match}
+                  scores={scores}
+                  meta={meta}
+                  players={players}
+                  matchFormat={matchFormat}
+                />
+              ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PlayerBracketCard({
+  match,
+  scores,
+  meta,
+  players,
+  matchFormat,
+}: {
+  match: DrawMatch;
+  scores: ScoreMap;
+  meta: MatchMeta;
+  players: PlayerMap;
+  matchFormat: MatchFormat;
+}) {
+  const score = scores[match.id];
+  const s1 = score?.s1 || "-";
+  const s2 = score?.s2 || "-";
+  const winner = getWinner(match, scores, matchFormat);
+  const status = meta[match.id]?.status || "Waiting";
+  const court = meta[match.id]?.court || "Court TBA";
+  const statusClass =
+    status === "Finished"
+      ? "player-badge-finished"
+      : status === "On Court"
+      ? "player-badge-live"
+      : "player-badge-waiting";
+
+  return (
+    <article className="player-bracket-card">
+      <div className="mb-3 flex items-start justify-between gap-2">
+        <div className="text-[11px] font-extrabold uppercase leading-tight text-white">
+          {match.round}
+        </div>
+        <div className="flex flex-wrap justify-end gap-1.5">
+          <span className="player-badge player-badge-court">{court}</span>
+          <span className={`player-badge ${statusClass}`}>{status}</span>
+        </div>
+      </div>
+
+      <div className="grid gap-2">
+        <div
+          className={
+            winner && winner === match.p1
+              ? "player-score-row player-score-row-winner"
+              : "player-score-row"
+          }
+        >
+          <span className="truncate">{playerName(players, match.p1)}</span>
+          <span>{s1}</span>
+        </div>
+        <div
+          className={
+            winner && winner === match.p2
+              ? "player-score-row player-score-row-winner"
+              : "player-score-row"
+          }
+        >
+          <span className="truncate">{playerName(players, match.p2)}</span>
+          <span>{s2}</span>
+        </div>
+      </div>
+    </article>
+  );
+}
+
 function RankingView({ rankingRows }: { rankingRows: RankingRow[] }) {
   return (
-    <div className="min-h-screen bg-neutral-950 text-white p-4 md:p-8">
+    <div className="sport-page p-4 md:p-6">
       <div className="max-w-6xl mx-auto space-y-6">
-        <div>
-          <h1 className="text-4xl md:text-5xl font-bold">
+        <div className="sport-hero">
+          <div className="sport-chip mb-4 bg-emerald-50 text-emerald-700 ring-emerald-100">
+            Ranking
+          </div>
+          <h1 className="text-4xl md:text-5xl font-extrabold text-white">
             JB Monthly Medal Ranking
           </h1>
 
-          <p className="text-neutral-300 mt-2">
+          <p className="text-emerald-50/90 mt-2 font-medium">
             Ranking based on participation, match wins and tournament results.
           </p>
         </div>
 
-        <Card className="bg-neutral-900 border-neutral-700 rounded-3xl text-white">
+        <Card className="sport-card">
           <CardContent className="p-0 overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="sport-table">
 
-              <thead className="bg-neutral-800 text-lime-300">
+              <thead>
                 <tr>
                   <th className="p-4 text-left">Rank</th>
                   <th className="p-4 text-left">Player</th>
@@ -2590,19 +3223,13 @@ function RankingView({ rankingRows }: { rankingRows: RankingRow[] }) {
                   .map((p, index) => (
                     <tr
                       key={`${p.category}-${p.playerCode}`}
-                      className="border-b border-neutral-800"
+                      className="hover:bg-white"
                     >
-                      <td className="p-4">
-                        {index === 0
-                          ? "🥇"
-                          : index === 1
-                          ? "🥈"
-                          : index === 2
-                          ? "🥉"
-                          : `#${index + 1}`}
+                      <td className="p-4 font-extrabold text-slate-500">
+                        {`#${index + 1}`}
                       </td>
 
-                      <td className="p-4 font-bold">
+                      <td className="p-4 font-bold text-slate-950">
                         {p.playerName}
                       </td>
 
@@ -2612,11 +3239,11 @@ function RankingView({ rankingRows }: { rankingRows: RankingRow[] }) {
                         {p.played}
                       </td>
 
-                      <td className="p-4 text-center text-lime-300">
+                      <td className="p-4 text-center text-emerald-700 font-bold">
                         {p.wins}
                       </td>
 
-                      <td className="p-4 text-center text-red-400">
+                      <td className="p-4 text-center text-red-600 font-bold">
                         {p.losses}
                       </td>
 
@@ -2624,7 +3251,7 @@ function RankingView({ rankingRows }: { rankingRows: RankingRow[] }) {
                         {p.titles}
                       </td>
 
-                      <td className="p-4 text-center text-yellow-300 font-bold">
+                      <td className="p-4 text-center text-amber-600 font-extrabold">
                         {p.points}
                       </td>
                     </tr>
@@ -2641,8 +3268,12 @@ function RankingView({ rankingRows }: { rankingRows: RankingRow[] }) {
 
 function TournamentActivityPage({
   activities,
+  isAdmin,
+  onBack,
 }: {
   activities: any[];
+  isAdmin: boolean;
+  onBack?: () => void;
 }) {
   const monthNames = [
     "JAN", "FEB", "MAR", "APR", "MAY", "JUN",
@@ -2665,6 +3296,8 @@ function TournamentActivityPage({
     return acc;
   }, {});
 const deleteTournament = async (id: string) => {
+  if (!isAdmin) return;
+
   const confirmDelete = window.confirm(
     "Delete this tournament permanently?"
   );
@@ -2676,24 +3309,41 @@ const deleteTournament = async (id: string) => {
   window.location.reload();
 };
   return (
-    <div className="min-h-screen bg-neutral-950 text-white p-6">
-      <h1 className="text-4xl font-bold mb-8">
-        Tournament Activity
-      </h1>
+    <div className="sport-page p-4 md:p-6">
+      <div className="sport-hero mb-8">
+        {onBack && (
+          <button
+            type="button"
+            onClick={onBack}
+            className="mb-4 rounded-lg bg-white/15 px-3 py-2 text-sm font-bold text-white ring-1 ring-white/20 hover:bg-white/20"
+          >
+            Back to Admin
+          </button>
+        )}
+        <div className="sport-chip mb-4 bg-emerald-50 text-emerald-700 ring-emerald-100">
+          Archive
+        </div>
+        <h1 className="text-4xl font-extrabold text-white">
+          Tournament Activity
+        </h1>
+        <p className="mt-2 font-medium text-emerald-50/90">
+          Closed tournaments and saved event results.
+        </p>
+      </div>
 
       <div className="space-y-10">
         {Object.keys(grouped)
           .sort((a, b) => Number(b) - Number(a))
           .map((year) => (
             <section key={year}>
-              <h2 className="text-3xl font-bold text-lime-300 mb-4">
+              <h2 className="text-3xl font-extrabold text-slate-950 mb-4">
                 {year}
               </h2>
 
               <div className="space-y-6">
                 {Object.keys(grouped[year]).map((month) => (
                   <div key={month}>
-                    <h3 className="text-xl font-bold text-yellow-300 mb-3">
+                    <h3 className="sport-chip mb-3">
                       {month}
                     </h3>
 
@@ -2704,39 +3354,35 @@ const deleteTournament = async (id: string) => {
                           to={`/activity/${tournament.id}`}
                           className="block"
                         >
-                          <Card className="bg-neutral-900 border-neutral-700 rounded-3xl hover:border-lime-400 transition">
-                            <CardContent className="p-5 space-y-2 text-white">
-                              <div className="flex justify-between items-start">
-  
+                          <Card className="sport-card transition hover:-translate-y-0.5 hover:border-emerald-300 hover:shadow-md">
+                            <CardContent className="p-5 space-y-3 text-slate-950">
+                              <div className="flex size-11 items-center justify-center rounded-full border-2 bg-emerald-50 text-sm font-extrabold text-emerald-700">JB</div>
 
-
-</div>
-
-                              <div className="text-4xl">📁</div>
-
-                              <h2 className="text-xl font-bold">
+                              <h2 className="text-xl font-extrabold">
                                 {tournament.tournamentName}
                               </h2>
 
-                              <p className="text-neutral-400 text-sm">
+                              <p className="text-slate-500 text-sm font-medium">
                                 {tournament.tournamentDate || tournament.updatedAt}
                               </p>
 
                              <div className="space-y-2 pt-2">
-  <p className="text-lime-300 font-semibold">
-    View Result →
+  <p className="text-emerald-700 font-bold">
+    View Result &gt;
   </p>
 
-  <button
-    onClick={(e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      deleteTournament(tournament.id);
-    }}
-    className="text-red-400 hover:text-red-300 text-sm font-semibold"
-  >
-    Delete
-  </button>
+  {isAdmin && (
+    <button
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        deleteTournament(tournament.id);
+      }}
+      className="text-red-600 hover:text-red-700 text-sm font-semibold"
+    >
+      Delete
+    </button>
+  )}
 </div>
                             </CardContent>
                           </Card>
@@ -2777,47 +3423,47 @@ function PastTournamentResultPage() {
 
   if (!tournament) {
     return (
-      <div className="min-h-screen bg-neutral-950 text-white p-6">
+      <div className="sport-page p-6">
         Loading past tournament...
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-neutral-950 text-white p-6 space-y-6">
-      <Link to="/activity" className="text-lime-300 font-bold">
+    <div className="sport-page p-4 md:p-6 space-y-6">
+      <Link to="/activity" className="text-emerald-700 font-bold">
         ← Back to Tournament Activity
       </Link>
 
-      <h1 className="text-4xl font-bold">
+      <h1 className="text-4xl font-extrabold text-slate-950">
         {tournament.tournamentName}
       </h1>
 
-      <p className="text-neutral-400">
+      <p className="text-slate-500 font-medium">
         Saved: {tournament.updatedAt}
       </p>
 
       {tournament.categories?.map((cat: any) => (
         <Card
           key={cat.id}
-          className="bg-neutral-900 border-neutral-700 rounded-3xl text-white"
+          className="sport-card"
         >
           <CardContent className="p-5 space-y-4">
-            <h2 className="text-2xl font-bold text-lime-300">
+            <h2 className="text-2xl font-extrabold text-emerald-700">
               {cat.name}
             </h2>
 
             <div>
-              <h3 className="font-bold mb-2">Players</h3>
+              <h3 className="font-bold mb-2 text-slate-950">Players</h3>
 
               <div className="grid md:grid-cols-3 gap-2">
                 {Object.entries(cat.players || {}).map(([code, name]) => (
                   name ? (
                     <div
                       key={code}
-                      className="bg-neutral-950 rounded-xl p-3"
+                      className="rounded-lg border border-slate-200 bg-slate-50 p-3"
                     >
-                      <span className="text-lime-300 font-bold">
+                      <span className="text-emerald-700 font-bold">
                         {code}
                       </span>{" "}
                       {String(name)}
@@ -2828,23 +3474,23 @@ function PastTournamentResultPage() {
             </div>
 
             <div>
-              <h3 className="font-bold mb-2">Group Matches Result</h3>
+              <h3 className="font-bold mb-2 text-slate-950">Group Matches Result</h3>
 
               <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
                 {cat.groupMatches?.map((m: any) => (
                   <div
                     key={m.id}
-                    className="bg-neutral-950 rounded-xl p-3"
+                    className="rounded-lg border border-slate-200 bg-slate-50 p-3"
                   >
-                    <div className="text-xs text-neutral-400">
-                      Group {m.group} • Round {m.round}
+                    <div className="text-xs text-slate-500">
+                      Group {m.group} - Round {m.round}
                     </div>
 
                     <div className="font-semibold">
                       {cat.players[m.p1] || m.p1} {m.s1 || "-"}
                     </div>
 
-                    <div className="text-neutral-500 text-xs">vs</div>
+                    <div className="text-slate-500/70 text-xs">vs</div>
 
                     <div className="font-semibold">
                       {cat.players[m.p2] || m.p2} {m.s2 || "-"}

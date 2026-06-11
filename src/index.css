@@ -122,11 +122,220 @@
     @apply border-border outline-ring/50;
     }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-[#f4f6f8] text-slate-950;
     }
   html {
     @apply font-sans;
     }
+}
+
+@layer components {
+  .sport-page {
+    @apply min-h-screen bg-[#f4f6f8] text-slate-950;
+  }
+
+  .sport-hero {
+    @apply rounded-2xl bg-[linear-gradient(135deg,#063f35_0%,#0d6b57_48%,#111827_100%)] p-5 shadow-xl shadow-slate-900/10 ring-1 ring-emerald-900/10 md:p-8;
+  }
+
+  .sport-card {
+    @apply rounded-xl border border-slate-200/80 bg-white text-slate-950 shadow-sm shadow-slate-950/5 ring-0;
+  }
+
+  .sport-card-dark {
+    @apply rounded-xl border border-slate-800 bg-slate-950 text-white shadow-sm shadow-slate-950/20 ring-0;
+  }
+
+  .sport-section-title {
+    @apply text-xl font-extrabold tracking-tight text-slate-950 md:text-2xl;
+  }
+
+  .sport-muted {
+    @apply text-sm font-medium text-slate-500;
+  }
+
+  .sport-chip {
+    @apply inline-flex items-center rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold uppercase tracking-wide text-emerald-700 ring-1 ring-emerald-100;
+  }
+
+  .sport-input {
+    @apply rounded-lg border-slate-200 bg-white text-slate-950 placeholder:text-slate-400 shadow-sm;
+  }
+
+  .sport-select {
+    @apply h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-950 shadow-sm disabled:opacity-60;
+  }
+
+  .sport-button-primary {
+    @apply rounded-lg bg-emerald-600 font-bold text-white hover:bg-emerald-700;
+  }
+
+  .sport-button-dark {
+    @apply rounded-lg bg-slate-950 font-bold text-white hover:bg-slate-800;
+  }
+
+  .sport-button-soft {
+    @apply rounded-lg bg-slate-100 font-bold text-slate-800 hover:bg-slate-200;
+  }
+
+  .sport-match-card {
+    @apply rounded-lg border border-slate-200 bg-slate-50 p-3 text-slate-950;
+  }
+
+  .sport-table {
+    @apply w-full border-separate border-spacing-0 text-sm;
+  }
+
+  .sport-table th {
+    @apply bg-slate-100 px-4 py-3 text-left text-xs font-extrabold uppercase tracking-wide text-slate-500;
+  }
+
+  .sport-table td {
+    @apply border-b border-slate-100 px-4 py-3;
+  }
+
+  .player-view-shell {
+    @apply min-h-screen bg-[radial-gradient(circle_at_50%_0%,rgba(42,96,68,0.42),transparent_34%),linear-gradient(180deg,#102318_0%,#07100c_62%,#050b08_100%)] text-white;
+  }
+
+  .player-view-frame {
+    @apply mx-auto min-h-screen w-full max-w-[520px] px-4 py-8;
+  }
+
+  .player-live-badge {
+    @apply rounded-full bg-emerald-500/20 px-3 py-2 text-xs font-extrabold text-emerald-300;
+  }
+
+  .player-category-tabs {
+    @apply grid grid-cols-3 gap-2;
+  }
+
+  .player-category-tab {
+    @apply h-11 rounded-lg border border-white/15 bg-white/[0.04] text-sm font-extrabold text-white transition hover:bg-white/10;
+  }
+
+  .player-category-tab-active {
+    @apply border-lime-400 bg-lime-400/15 text-lime-300;
+  }
+
+  .player-section-tabs {
+    @apply grid grid-cols-4 gap-1 rounded-full border border-white/15 bg-white/[0.04] p-1;
+  }
+
+  .player-section-tab {
+    @apply h-8 rounded-full text-xs font-extrabold text-white transition hover:bg-white/10;
+  }
+
+  .player-section-tab-active {
+    @apply bg-lime-400 text-black;
+  }
+
+  .player-draw-subtabs {
+    @apply grid grid-cols-2 gap-2;
+  }
+
+  .player-draw-subtab {
+    @apply h-10 rounded-lg border border-white/15 bg-white/[0.04] text-sm font-extrabold text-white transition hover:bg-white/10;
+  }
+
+  .player-draw-subtab-active {
+    @apply border-lime-400 bg-lime-400/15 text-lime-300;
+  }
+
+  .player-panel-title {
+    @apply flex items-center justify-between pt-2 text-white;
+  }
+
+  .player-match-card {
+    @apply rounded-lg border border-white/15 bg-white/[0.045] p-3 shadow-[0_18px_50px_rgba(0,0,0,0.28)] backdrop-blur;
+  }
+
+  .player-badge {
+    @apply inline-flex min-h-6 items-center rounded-full px-2 text-[11px] font-extrabold;
+  }
+
+  .player-badge-court {
+    @apply bg-cyan-400/15 text-cyan-300;
+  }
+
+  .player-badge-finished {
+    @apply bg-lime-400/15 text-lime-300;
+  }
+
+  .player-badge-live {
+    @apply bg-emerald-400/15 text-emerald-300;
+  }
+
+  .player-badge-waiting {
+    @apply bg-yellow-400/15 text-yellow-300;
+  }
+
+  .player-score-row {
+    @apply grid min-h-10 grid-cols-[1fr_auto] items-center gap-3 rounded-md bg-white/[0.055] px-3 py-2 text-base font-extrabold text-white;
+  }
+
+  .player-score-row-winner {
+    @apply bg-gradient-to-r from-emerald-500/35 to-emerald-500/20 shadow-[inset_4px_0_0_#5df1b2];
+  }
+
+  .player-dark-card {
+    @apply rounded-lg border border-white/15 bg-white/[0.045] text-white shadow-[0_18px_50px_rgba(0,0,0,0.28)] backdrop-blur;
+  }
+
+  .player-order-card {
+    @apply grid min-h-24 grid-cols-[76px_1fr] gap-3 rounded-lg border border-white/15 bg-white/[0.045] p-3 text-white shadow-[0_18px_50px_rgba(0,0,0,0.28)] backdrop-blur;
+  }
+
+  .player-order-court {
+    @apply grid place-items-center rounded-lg bg-emerald-700/80 text-center text-white;
+  }
+
+  .player-order-court span {
+    @apply block text-[11px] font-extrabold uppercase tracking-wide text-white/85;
+  }
+
+  .player-order-court strong {
+    @apply mt-1 block text-3xl font-extrabold leading-none;
+  }
+
+  .player-bracket-scroll {
+    @apply overflow-x-auto pb-3;
+  }
+
+  .player-bracket-grid {
+    @apply grid min-w-max items-center gap-9;
+  }
+
+  .player-bracket-round {
+    @apply relative grid gap-5;
+  }
+
+  .player-bracket-card {
+    @apply relative min-h-32 rounded-lg border border-white/15 bg-white/[0.045] p-3 text-white shadow-[0_18px_50px_rgba(0,0,0,0.28)] backdrop-blur;
+  }
+
+  .player-bracket-card::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    right: -37px;
+    width: 36px;
+    border-top: 2px solid rgba(255, 255, 255, 0.18);
+  }
+
+  .player-bracket-round::after {
+    content: "";
+    position: absolute;
+    top: 28%;
+    right: -37px;
+    bottom: 28%;
+    border-right: 2px solid rgba(255, 255, 255, 0.18);
+  }
+
+  .player-bracket-round-final::after,
+  .player-bracket-round-final .player-bracket-card::after {
+    display: none;
+  }
 }
 
 
