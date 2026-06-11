@@ -17,12 +17,12 @@ export default function HomePage() {
 
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
           <HomeCard
-            icon={<Trophy />}
-            title="Tournament Activity"
-            desc="View tournament info, categories and event updates."
-            href="/playerview"
-            button="View Tournament"
-          />
+  icon={<Trophy />}
+  title="Tournament Activity"
+  desc="View past tournaments, results and event history."
+  href="/activity"
+  button="View Activity"
+/>
 
           <HomeCard
             icon={<Shield />}

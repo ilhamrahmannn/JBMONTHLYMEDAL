@@ -1,10 +1,23 @@
-import { doc, setDoc, onSnapshot } from "firebase/firestore";
+import { Link, useParams } from "react-router-dom";
+import {
+  doc,
+  setDoc,
+  onSnapshot,
+  collection,
+  addDoc,
+  getDocs,
+  getDoc,
+  serverTimestamp,
+  updateDoc,
+} from "firebase/firestore";
 import { db } from "./firebase";
 import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent } from "./components/ui/card";
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
 import { Trophy, Users, RotateCcw, Settings } from "lucide-react";
+import { deleteDoc } from "firebase/firestore";
+import { Trash2 } from "lucide-react";
 
 
 const ADMIN_PASSWORD = "JBMM2026";
@@ -577,10 +590,32 @@ function hasPlayerConflict(match: { p1: string; p2: string }, usedPlayers: Set<s
 }
 
 type AppProps = {
-  viewMode: "admin" | "player" | "ranking";
+  viewMode: "admin" | "player" | "ranking" | "activity" | "activityDetail";
 };
 
 export default function App({ viewMode }: AppProps) {
+
+  useEffect(() => {
+  const loadActivities = async () => {
+    const snapshot = await getDocs(
+      collection(db, "tournaments")
+    );
+
+    const activities = snapshot.docs
+      .map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }))
+      .filter(
+        (tournament: any) =>
+          tournament.status === "closed"
+      );
+
+    setTournamentActivities(activities);
+  };
+
+  loadActivities();
+}, []);
   
   const [categories, setCategories] = useState<Category[]>(() => [
     createCategory("Open Category"),
@@ -589,6 +624,9 @@ export default function App({ viewMode }: AppProps) {
 
   const [activeCategoryId, setActiveCategoryId] = useState<string>("");
   const [tournamentName, setTournamentName] = useState("Tennis Tournament Manager");
+  const [tournamentDate, setTournamentDate] = useState(
+  new Date().toISOString().split("T")[0]
+);
   const [indoorCourts, setIndoorCourts] = useState(5);
   const [outdoorCourts, setOutdoorCourts] = useState(0);
   const [startTime, setStartTime] = useState("08:00");
@@ -619,6 +657,12 @@ const togglePlayerSection = (key: keyof typeof openPlayerSections) => {
     [key]: !prev[key],
   }));
 };
+
+const [tournamentActivities, setTournamentActivities] = useState<any[]>([]);
+const [currentTournamentId, setCurrentTournamentId] = useState<string>("");
+
+
+
 const isPlayerView = viewMode === "player";
   const activeCategory =
     categories.find((cat) => cat.id === activeCategoryId) || categories[0];
@@ -691,6 +735,10 @@ console.log(rankingRows);
       }
 
       setTournamentName(data.tournamentName || "Tennis Tournament Manager");
+      setTournamentDate(
+  data.tournamentDate ||
+  new Date().toISOString().split("T")[0]
+);
       setIndoorCourts(data.indoorCourts ?? 5);
       setOutdoorCourts(data.outdoorCourts ?? 0);
       setStartTime(data.startTime || "08:00");
@@ -699,6 +747,8 @@ console.log(rankingRows);
 
     setIsLoaded(true);
   });
+
+  
 
   return () => unsubscribe();
 }, []);
@@ -902,24 +952,77 @@ console.log(rankingRows);
     setOrderOfPlay([]);
   };
 
+const createNewTournament = async () => {
+  const data = {
+  categories,
+  activeCategoryId,
+  tournamentName,
+  tournamentDate,
+  indoorCourts,
+  outdoorCourts,
+  startTime,
+  orderOfPlay,
+  status: "active",
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString(),
+};
+
+  const docRef = await addDoc(collection(db, "tournaments"), data);
+
+  setCurrentTournamentId(docRef.id);
+
+  await setDoc(doc(db, "currentTournament", "live"), {
+    tournamentId: docRef.id,
+  });
+
+  alert("New tournament created");
+};
+
 const saveTournamentToFirebase = async () => {
-  await setDoc(
-    tournamentDocRef,
-    {
-      categories,
-      activeCategoryId,
-      tournamentName,
-      indoorCourts,
-      outdoorCourts,
-      startTime,
-      orderOfPlay,
-      updatedAt: new Date().toISOString(),
-    },
-    { merge: true }
+  if (!currentTournamentId) {
+    alert("Please create tournament first");
+    return;
+  }
+
+ const data = {
+  categories,
+  activeCategoryId,
+  tournamentName,
+  tournamentDate,
+  indoorCourts,
+  outdoorCourts,
+  startTime,
+  orderOfPlay,
+  status: "active",
+  updatedAt: new Date().toISOString(),
+};
+
+  await updateDoc(doc(db, "tournaments", currentTournamentId), data);
+
+  alert("Live tournament updated");
+};
+
+const closeTournament = async () => {
+  if (!currentTournamentId) {
+    alert("No active tournament to close");
+    return;
+  }
+
+  const confirmClose = confirm(
+    "Close this tournament and move it to Tournament Activity?"
   );
 
+  if (!confirmClose) return;
 
-  console.log("Tournament Saved");
+  await updateDoc(doc(db, "tournaments", currentTournamentId), {
+    status: "closed",
+    closedAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+
+  setCurrentTournamentId("");
+
+  alert("Tournament closed and saved to activity");
 };
 
   const updateGroupScore = (id: string, key: "s1" | "s2", value: string) => {
@@ -1267,6 +1370,7 @@ const saveTournamentToFirebase = async () => {
     setCategories(freshCategories);
     setActiveCategoryId(freshCategories[0].id);
     setTournamentName("Tennis Tournament Manager");
+    setTournamentDate("2026-06-21");
     setIndoorCourts(5);
     setOutdoorCourts(0);
     setStartTime("08:00");
@@ -1368,6 +1472,14 @@ if (viewMode === "ranking") {
   return <RankingView rankingRows={rankingRows} />;
 }
 
+if (viewMode === "activity") {
+  return <TournamentActivityPage activities={tournamentActivities} />;
+}
+
+if (viewMode === "activityDetail") {
+  return <PastTournamentResultPage />;
+}
+
   return (
     <div className="min-h-screen bg-neutral-950 text-neutral-100 p-4 md:p-8">
       <div className="max-w-7xl mx-auto space-y-8">
@@ -1387,49 +1499,11 @@ if (viewMode === "ranking") {
           <div className="flex flex-wrap items-center gap-2">
   {viewMode === "admin" && (
     <>
-      <Button onClick={resetScores} className="rounded-2xl font-semibold">
-        <RotateCcw className="w-4 h-4 mr-2" />
-        Reset Scores
-      </Button>
-
       <Button
-        onClick={exportTournament}
-        className="rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-semibold"
-      >
-        Export JSON
-      </Button>
-
-      <Button
-        type="button"
-        className="rounded-2xl bg-purple-600 hover:bg-purple-700 text-white font-semibold relative overflow-hidden"
-      >
-        Import JSON
-        <input
-          type="file"
-          accept="application/json"
-          className="absolute inset-0 opacity-0 cursor-pointer"
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-
-            if (file) importTournament(file);
-
-            e.target.value = "";
-          }}
-        />
-      </Button>
-
-      <Button
-        onClick={exportPDF}
-        className="rounded-2xl bg-red-600 hover:bg-red-700 text-white font-semibold"
-      >
-        Export PDF
-      </Button>
-
-      <Button
-  onClick={() => window.open("/playerview", "_blank")}
-  className="rounded-2xl bg-cyan-600 hover:bg-cyan-700 text-white font-semibold"
+  onClick={createNewTournament}
+  className="rounded-2xl bg-green-600 hover:bg-green-700 text-white font-semibold"
 >
-  Open Player View
+  Create Tournament
 </Button>
 
 <Button
@@ -1438,6 +1512,22 @@ if (viewMode === "ranking") {
 >
   Save Live
 </Button>
+
+<Button
+  onClick={closeTournament}
+  className="rounded-2xl bg-orange-600 hover:bg-orange-700 text-white font-semibold"
+>
+  Close Tournament
+</Button>
+
+      <Button
+  onClick={() => window.open("/playerview", "_blank")}
+  className="rounded-2xl bg-cyan-600 hover:bg-cyan-700 text-white font-semibold"
+>
+  Open Player View
+</Button>
+
+
 
 
     </>
@@ -1520,7 +1610,18 @@ if (viewMode === "ranking") {
                   className="bg-neutral-950 border-neutral-600 rounded-xl text-white font-semibold"
                 />
               </div>
-
+              <div className="space-y-2">
+  <label className="text-sm text-neutral-200 font-semibold">
+    Tournament Date
+  </label>
+  <Input
+  type="date"
+  value={tournamentDate}
+  onChange={(e) => setTournamentDate(e.target.value)}
+  className="bg-neutral-950 border-neutral-600 rounded-xl text-white font-semibold"
+  style={{ colorScheme: "dark" }}
+/>
+</div>
               <div className="space-y-2">
                 <label className="text-sm text-neutral-200 font-semibold">
                   Category Name
@@ -2353,6 +2454,8 @@ function DrawSection({
       .filter((x) => x.round === round)
       .findIndex((x) => x.id === m.id) + 1
   }
+
+  
 </div>
 
                     <div className="grid grid-cols-[1fr_56px] gap-2 items-center">
@@ -2532,6 +2635,227 @@ function RankingView({ rankingRows }: { rankingRows: RankingRow[] }) {
           </CardContent>
         </Card>
       </div>
+    </div>
+  );
+}
+
+function TournamentActivityPage({
+  activities,
+}: {
+  activities: any[];
+}) {
+  const monthNames = [
+    "JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+    "JUL", "AUG", "SEP", "OCT", "NOV", "DEC",
+  ];
+
+  const grouped = activities.reduce((acc: any, tournament: any) => {
+    const date = tournament.tournamentDate
+      ? new Date(tournament.tournamentDate)
+      : new Date(tournament.updatedAt);
+      
+    const year = String(date.getFullYear());
+    const month = monthNames[date.getMonth()];
+
+    if (!acc[year]) acc[year] = {};
+    if (!acc[year][month]) acc[year][month] = [];
+
+    acc[year][month].push(tournament);
+
+    return acc;
+  }, {});
+const deleteTournament = async (id: string) => {
+  const confirmDelete = window.confirm(
+    "Delete this tournament permanently?"
+  );
+
+  if (!confirmDelete) return;
+
+  await deleteDoc(doc(db, "tournaments", id));
+
+  window.location.reload();
+};
+  return (
+    <div className="min-h-screen bg-neutral-950 text-white p-6">
+      <h1 className="text-4xl font-bold mb-8">
+        Tournament Activity
+      </h1>
+
+      <div className="space-y-10">
+        {Object.keys(grouped)
+          .sort((a, b) => Number(b) - Number(a))
+          .map((year) => (
+            <section key={year}>
+              <h2 className="text-3xl font-bold text-lime-300 mb-4">
+                {year}
+              </h2>
+
+              <div className="space-y-6">
+                {Object.keys(grouped[year]).map((month) => (
+                  <div key={month}>
+                    <h3 className="text-xl font-bold text-yellow-300 mb-3">
+                      {month}
+                    </h3>
+
+                    <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {grouped[year][month].map((tournament: any) => (
+                        <Link
+                          key={tournament.id}
+                          to={`/activity/${tournament.id}`}
+                          className="block"
+                        >
+                          <Card className="bg-neutral-900 border-neutral-700 rounded-3xl hover:border-lime-400 transition">
+                            <CardContent className="p-5 space-y-2 text-white">
+                              <div className="flex justify-between items-start">
+  
+
+
+</div>
+
+                              <div className="text-4xl">📁</div>
+
+                              <h2 className="text-xl font-bold">
+                                {tournament.tournamentName}
+                              </h2>
+
+                              <p className="text-neutral-400 text-sm">
+                                {tournament.tournamentDate || tournament.updatedAt}
+                              </p>
+
+                             <div className="space-y-2 pt-2">
+  <p className="text-lime-300 font-semibold">
+    View Result →
+  </p>
+
+  <button
+    onClick={(e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      deleteTournament(tournament.id);
+    }}
+    className="text-red-400 hover:text-red-300 text-sm font-semibold"
+  >
+    Delete
+  </button>
+</div>
+                            </CardContent>
+                          </Card>
+                        </Link>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          ))}
+      </div>
+    </div>
+  );
+}
+
+function PastTournamentResultPage() {
+  const { tournamentId } = useParams();
+  const [tournament, setTournament] = useState<any>(null);
+
+  useEffect(() => {
+    const loadTournament = async () => {
+      if (!tournamentId) return;
+
+      const ref = doc(db, "tournaments", tournamentId);
+      const snapshot = await getDoc(ref);
+
+      if (snapshot.exists()) {
+        setTournament({
+          id: snapshot.id,
+          ...snapshot.data(),
+        });
+      }
+    };
+
+    loadTournament();
+  }, [tournamentId]);
+
+  if (!tournament) {
+    return (
+      <div className="min-h-screen bg-neutral-950 text-white p-6">
+        Loading past tournament...
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-neutral-950 text-white p-6 space-y-6">
+      <Link to="/activity" className="text-lime-300 font-bold">
+        ← Back to Tournament Activity
+      </Link>
+
+      <h1 className="text-4xl font-bold">
+        {tournament.tournamentName}
+      </h1>
+
+      <p className="text-neutral-400">
+        Saved: {tournament.updatedAt}
+      </p>
+
+      {tournament.categories?.map((cat: any) => (
+        <Card
+          key={cat.id}
+          className="bg-neutral-900 border-neutral-700 rounded-3xl text-white"
+        >
+          <CardContent className="p-5 space-y-4">
+            <h2 className="text-2xl font-bold text-lime-300">
+              {cat.name}
+            </h2>
+
+            <div>
+              <h3 className="font-bold mb-2">Players</h3>
+
+              <div className="grid md:grid-cols-3 gap-2">
+                {Object.entries(cat.players || {}).map(([code, name]) => (
+                  name ? (
+                    <div
+                      key={code}
+                      className="bg-neutral-950 rounded-xl p-3"
+                    >
+                      <span className="text-lime-300 font-bold">
+                        {code}
+                      </span>{" "}
+                      {String(name)}
+                    </div>
+                  ) : null
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <h3 className="font-bold mb-2">Group Matches Result</h3>
+
+              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {cat.groupMatches?.map((m: any) => (
+                  <div
+                    key={m.id}
+                    className="bg-neutral-950 rounded-xl p-3"
+                  >
+                    <div className="text-xs text-neutral-400">
+                      Group {m.group} • Round {m.round}
+                    </div>
+
+                    <div className="font-semibold">
+                      {cat.players[m.p1] || m.p1} {m.s1 || "-"}
+                    </div>
+
+                    <div className="text-neutral-500 text-xs">vs</div>
+
+                    <div className="font-semibold">
+                      {cat.players[m.p2] || m.p2} {m.s2 || "-"}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      ))}
     </div>
   );
 }
