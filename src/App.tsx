@@ -3215,10 +3215,10 @@ function PlayerBracket({
     (a, b) => roundOrder.indexOf(a) - roundOrder.indexOf(b)
   );
   const bracketLayout = useMemo(() => {
-    const cardWidth = 210;
-    const cardHeight = 132;
-    const roundGap = 56;
-    const matchGap = 24;
+    const cardWidth = 260;
+    const cardHeight = 156;
+    const roundGap = 64;
+    const matchGap = 30;
     const columnPitch = cardWidth + roundGap;
     const rowPitch = cardHeight + matchGap;
     const roundMatches = rounds.map((round) =>
@@ -3340,8 +3340,8 @@ function PlayerBracket({
             key={match.id}
             className="player-bracket-card-shell"
             style={{
-              height: bracketLayout.cardHeight,
               left,
+              minHeight: bracketLayout.cardHeight,
               top,
               width: bracketLayout.cardWidth,
             }}
@@ -3406,7 +3406,7 @@ function PlayerBracketCard({
               : "player-score-row"
           }
         >
-          <span className="truncate">{playerName(players, match.p1)}</span>
+          <span className="player-name">{playerName(players, match.p1)}</span>
           <span>{s1}</span>
         </div>
         <div
@@ -3416,7 +3416,7 @@ function PlayerBracketCard({
               : "player-score-row"
           }
         >
-          <span className="truncate">{playerName(players, match.p2)}</span>
+          <span className="player-name">{playerName(players, match.p2)}</span>
           <span>{s2}</span>
         </div>
       </div>
