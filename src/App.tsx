@@ -919,37 +919,67 @@ console.log(rankingRows);
 
  
   
-  useEffect(() => {
-  const unsubscribe = onSnapshot(tournamentDocRef, (snapshot) => {
-    console.log("SNAPSHOT EXISTS:", snapshot.exists());
-
-    if (snapshot.exists()) {
-      const data = snapshot.data();
-      console.log("FIREBASE DATA:", data);
-
-      if (data.categories?.length) {
-        setCategories(data.categories);
-        setActiveCategoryId(data.activeCategoryId || data.categories[0].id);
-      }
-
-      setTournamentName(data.tournamentName || "Tennis Tournament Manager");
-      setTournamentDate(
-  data.tournamentDate ||
-  new Date().toISOString().split("T")[0]
-);
-      setIndoorCourts(data.indoorCourts ?? 5);
-      setOutdoorCourts(data.outdoorCourts ?? 0);
-      setStartTime(data.startTime || "08:00");
-      setOrderOfPlay(data.orderOfPlay || []);
+  const applyTournamentData = (data: any) => {
+    if (data.categories?.length) {
+      setCategories(data.categories);
+      setActiveCategoryId(data.activeCategoryId || data.categories[0].id);
     }
 
-    setIsLoaded(true);
-  });
+    setTournamentName(data.tournamentName || "Tennis Tournament Manager");
+    setTournamentDate(
+      data.tournamentDate || new Date().toISOString().split("T")[0]
+    );
+    setIndoorCourts(data.indoorCourts ?? 5);
+    setOutdoorCourts(data.outdoorCourts ?? 0);
+    setStartTime(data.startTime || "08:00");
+    setOrderOfPlay(data.orderOfPlay || []);
+  };
 
-  
+  useEffect(() => {
+    let unsubscribeTournament: (() => void) | null = null;
 
-  return () => unsubscribe();
-}, []);
+    const unsubscribeLive = onSnapshot(
+      doc(db, "currentTournament", "live"),
+      (liveSnapshot) => {
+        unsubscribeTournament?.();
+        unsubscribeTournament = null;
+
+        const liveTournamentId = liveSnapshot.exists()
+          ? liveSnapshot.data().tournamentId
+          : "";
+
+        if (liveTournamentId) {
+          setCurrentTournamentId(liveTournamentId);
+
+          unsubscribeTournament = onSnapshot(
+            doc(db, "tournaments", liveTournamentId),
+            (snapshot) => {
+              if (snapshot.exists()) {
+                applyTournamentData(snapshot.data());
+              }
+
+              setIsLoaded(true);
+            }
+          );
+
+          return;
+        }
+
+        unsubscribeTournament = onSnapshot(tournamentDocRef, (snapshot) => {
+          if (snapshot.exists()) {
+            applyTournamentData(snapshot.data());
+          }
+
+          setIsLoaded(true);
+        });
+      }
+    );
+
+    return () => {
+      unsubscribeLive();
+      unsubscribeTournament?.();
+    };
+  }, []);
 
 
 

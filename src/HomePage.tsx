@@ -89,16 +89,20 @@ export default function HomePage() {
             <div className="absolute inset-[14%] rounded-full border-x-[3px] border-white/60 rotate-[28deg]" />
           </div>
 
-          <div className="relative max-w-3xl">
+          <div className="relative -translate-y-10 max-w-[820px]">
             <span className="inline-flex rounded-full border border-lime-400/50 bg-black/35 px-3 py-2 text-xs font-extrabold text-lime-300">
               Next Event: Sunday, 21 June 2026
             </span>
 
-            <h1 className="mt-6 max-w-2xl text-[clamp(56px,8vw,92px)] font-light leading-[0.95] tracking-normal text-[#f7f7ef]">
-              JB Monthly
-              <br />
-              Medal
-            </h1>
+            <div className="mt-6 w-full max-w-[820px] space-y-2">
+              <h1 className="home-hero-title origin-left text-left text-[52px] font-semibold uppercase leading-[0.95] tracking-[0.08em] text-[#F2F0E8] drop-shadow-sm sm:text-[64px] md:whitespace-nowrap md:text-[82px] xl:text-[96px]">
+                JB MONTHLY MEDAL
+              </h1>
+
+              <h2 className="home-hero-series mt-3 text-left text-[28px] font-semibold uppercase italic tracking-[0.18em] text-[#F2F0E8] md:text-[42px]">
+                CLASH SERIES 2026
+              </h2>
+            </div>
 
             <p className="mt-6 max-w-2xl text-lg font-medium leading-8 text-white md:text-xl">
               A friendly singles tournament for Johor Bahru tennis players, with
