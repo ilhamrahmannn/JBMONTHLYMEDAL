@@ -93,16 +93,29 @@ function generateGroups(count: number) {
   return Array.from({ length: count }, (_, i) => String.fromCharCode(65 + i));
 }
 
-function generateCourts(indoor: number, outdoor: number): Court[] {
+function generateCourts(
+  indoor: number,
+  outdoor: number,
+  indoorStart = 6,
+  outdoorStart = 1
+): Court[] {
   return [
-    ...Array.from({ length: indoor }, (_, i) => ({
-      id: `indoor-${i + 1}`,
-      name: `Indoor Court ${i + 1}`,
-    })),
-    ...Array.from({ length: outdoor }, (_, i) => ({
-      id: `outdoor-${i + 1}`,
-      name: `Outdoor Court ${i + 1}`,
-    })),
+    ...Array.from({ length: indoor }, (_, i) => {
+      const courtNumber = indoorStart + i;
+
+      return {
+        id: `indoor-${courtNumber}`,
+        name: `Indoor Court ${courtNumber}`,
+      };
+    }),
+    ...Array.from({ length: outdoor }, (_, i) => {
+      const courtNumber = outdoorStart + i;
+
+      return {
+        id: `outdoor-${courtNumber}`,
+        name: `Outdoor Court ${courtNumber}`,
+      };
+    }),
   ];
 }
 
@@ -821,6 +834,8 @@ export default function App({ viewMode }: AppProps) {
 );
   const [indoorCourts, setIndoorCourts] = useState(5);
   const [outdoorCourts, setOutdoorCourts] = useState(0);
+  const [indoorCourtStart, setIndoorCourtStart] = useState(6);
+  const [outdoorCourtStart, setOutdoorCourtStart] = useState(1);
   const [startTime, setStartTime] = useState("08:00");
   const [orderOfPlay, setOrderOfPlay] = useState<OrderMatch[]>([]);
  useEffect(() => {
@@ -880,8 +895,14 @@ console.log(rankingRows);
   );
 
   const courts = useMemo(
-    () => generateCourts(indoorCourts, outdoorCourts),
-    [indoorCourts, outdoorCourts]
+    () =>
+      generateCourts(
+        indoorCourts,
+        outdoorCourts,
+        indoorCourtStart,
+        outdoorCourtStart
+      ),
+    [indoorCourts, outdoorCourts, indoorCourtStart, outdoorCourtStart]
   );
 
   
@@ -931,6 +952,8 @@ console.log(rankingRows);
     );
     setIndoorCourts(data.indoorCourts ?? 5);
     setOutdoorCourts(data.outdoorCourts ?? 0);
+    setIndoorCourtStart(data.indoorCourtStart ?? 6);
+    setOutdoorCourtStart(data.outdoorCourtStart ?? 1);
     setStartTime(data.startTime || "08:00");
     setOrderOfPlay(data.orderOfPlay || []);
   };
@@ -1240,6 +1263,8 @@ const createNewTournament = async () => {
   tournamentDate,
   indoorCourts,
   outdoorCourts,
+  indoorCourtStart,
+  outdoorCourtStart,
   startTime,
   orderOfPlay,
   status: "active",
@@ -1271,6 +1296,8 @@ const saveTournamentToFirebase = async () => {
   tournamentDate,
   indoorCourts,
   outdoorCourts,
+  indoorCourtStart,
+  outdoorCourtStart,
   startTime,
   orderOfPlay,
   status: "active",
@@ -1653,6 +1680,8 @@ const closeTournament = async () => {
     setTournamentDate("2026-06-21");
     setIndoorCourts(5);
     setOutdoorCourts(0);
+    setIndoorCourtStart(6);
+    setOutdoorCourtStart(1);
     setStartTime("08:00");
     setOrderOfPlay([]);
   };
@@ -1664,6 +1693,8 @@ const closeTournament = async () => {
     tournamentName,
     indoorCourts,
     outdoorCourts,
+    indoorCourtStart,
+    outdoorCourtStart,
     startTime,
     orderOfPlay,
   };
@@ -1700,6 +1731,8 @@ const importTournament = (file: File) => {
     setTournamentName(data.tournamentName || "Tennis Tournament Manager");
     setIndoorCourts(data.indoorCourts ?? 5);
     setOutdoorCourts(data.outdoorCourts ?? 0);
+    setIndoorCourtStart(data.indoorCourtStart ?? 6);
+    setOutdoorCourtStart(data.outdoorCourtStart ?? 1);
     setStartTime(data.startTime || "08:00");
     setOrderOfPlay(data.orderOfPlay || []);
   };
@@ -2048,6 +2081,21 @@ if (viewMode === "admin" && isAdminAuthenticated && adminActivityOpen) {
 
               <div className="space-y-2">
                 <label className="text-sm text-slate-500 font-semibold">
+                  Indoor Start No.
+                </label>
+                <Input
+                  type="number"
+                  min={1}
+                  value={indoorCourtStart}
+                  onChange={(e) =>
+                    setIndoorCourtStart(Math.max(1, Number(e.target.value)))
+                  }
+                  className="sport-input font-semibold"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm text-slate-500 font-semibold">
                   Outdoor Courts
                 </label>
                 <Input
@@ -2055,6 +2103,21 @@ if (viewMode === "admin" && isAdminAuthenticated && adminActivityOpen) {
                   min={0}
                   value={outdoorCourts}
                   onChange={(e) => setOutdoorCourts(Number(e.target.value))}
+                  className="sport-input font-semibold"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm text-slate-500 font-semibold">
+                  Outdoor Start No.
+                </label>
+                <Input
+                  type="number"
+                  min={1}
+                  value={outdoorCourtStart}
+                  onChange={(e) =>
+                    setOutdoorCourtStart(Math.max(1, Number(e.target.value)))
+                  }
                   className="sport-input font-semibold"
                 />
               </div>
