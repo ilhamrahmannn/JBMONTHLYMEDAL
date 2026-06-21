@@ -266,11 +266,17 @@ function buildSeedSlots(entrants: string[], size: number) {
     }
   }
 
-  const topRank = ranks[0];
-  const byeEligible = parsedEntrants
-    .filter((entrant) => entrant.seed.rank === topRank)
-    .sort((a, b) => a.seed.group.localeCompare(b.seed.group));
-  const byeSeeds = byeEligible.slice(0, byeCount).map((entrant) => entrant.code);
+  const seededEntrants = parsedEntrants
+    .sort(
+      (a, b) =>
+        a.seed.rank - b.seed.rank ||
+        a.seed.group.localeCompare(b.seed.group)
+    )
+    .map((entrant) => entrant.code);
+  const unparsedEntrants = entrants.filter(
+    (entrant) => !seededEntrants.includes(entrant)
+  );
+  const byeSeeds = [...seededEntrants, ...unparsedEntrants].slice(0, byeCount);
   const remaining = entrants.filter((entrant) => !byeSeeds.includes(entrant));
   const seeds = Array<string>(size).fill("");
 
@@ -406,6 +412,10 @@ function playerName(players: PlayerMap, code: string): string {
   if (!code) return "TBD";
   if (code === "BYE") return "BYE";
   return players[code]?.trim() || code;
+}
+
+function hasRegisteredPlayer(players: PlayerMap, code: string) {
+  return code !== "BYE" && Boolean(players[code]?.trim());
 }
 
 function isSearchedPlayer(
@@ -570,6 +580,7 @@ groups.forEach((g) => {
 const mainEntrants = groups.flatMap(
   (g) =>
     groupTable[g]
+      ?.filter((p) => hasRegisteredPlayer(category.players, p.code))
       ?.slice(0, category.topQualify)
       .map((p) => p.code) || []
 );
@@ -577,6 +588,7 @@ const mainEntrants = groups.flatMap(
 const loserEntrants = groups.flatMap(
   (g) =>
     groupTable[g]
+      ?.filter((p) => hasRegisteredPlayer(category.players, p.code))
       ?.slice(category.topQualify)
       .map((p) => p.code) || []
 );
@@ -1077,19 +1089,21 @@ console.log(rankingRows);
     return groups.flatMap(
       (g) =>
         standings[g]
+          ?.filter((p) => hasRegisteredPlayer(activeCategory.players, p.code))
           ?.slice(0, activeCategory.topQualify)
           .map((p) => p.code) || []
     );
-  }, [groups, standings, activeCategory.topQualify]);
+  }, [groups, standings, activeCategory.players, activeCategory.topQualify]);
 
   const loserEntrants = useMemo(() => {
     return groups.flatMap(
       (g) =>
         standings[g]
+          ?.filter((p) => hasRegisteredPlayer(activeCategory.players, p.code))
           ?.slice(activeCategory.topQualify)
           .map((p) => p.code) || []
     );
-  }, [groups, standings, activeCategory.topQualify]);
+  }, [groups, standings, activeCategory.players, activeCategory.topQualify]);
 
   const mainTemplate = useMemo(
     () => buildBracket("MAIN", mainEntrants),
@@ -1627,11 +1641,19 @@ const closeTournament = async () => {
     addMatchesToSchedule(groupStageMatches);
 
     const mainEntrantsForCat = catGroups.flatMap(
-      (g) => table[g]?.slice(0, cat.topQualify).map((p) => p.code) || []
+      (g) =>
+        table[g]
+          ?.filter((p) => hasRegisteredPlayer(cat.players, p.code))
+          .slice(0, cat.topQualify)
+          .map((p) => p.code) || []
     );
 
     const loserEntrantsForCat = catGroups.flatMap(
-      (g) => table[g]?.slice(cat.topQualify).map((p) => p.code) || []
+      (g) =>
+        table[g]
+          ?.filter((p) => hasRegisteredPlayer(cat.players, p.code))
+          .slice(cat.topQualify)
+          .map((p) => p.code) || []
     );
 
     const mainDrawMatches = buildBracket("MAIN", mainEntrantsForCat)
