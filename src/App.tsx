@@ -237,6 +237,20 @@ function buildFirstRoundPairsAvoidingSameGroup(entrants: string[]) {
   return pairs;
 }
 
+function spreadByeMatchIndexes(matchCount: number) {
+  const indexes: number[] = [];
+
+  for (let i = 0; i < matchCount; i += 2) {
+    indexes.push(i);
+  }
+
+  for (let i = 1; i < matchCount; i += 2) {
+    indexes.push(i);
+  }
+
+  return indexes;
+}
+
 function buildSeedSlots(entrants: string[], size: number) {
   const byeCount = size - entrants.length;
 
@@ -305,16 +319,28 @@ function buildSeedSlots(entrants: string[], size: number) {
   const byeSeeds = [...seededEntrants, ...unparsedEntrants].slice(0, byeCount);
   const remaining = entrants.filter((entrant) => !byeSeeds.includes(entrant));
   const seeds = Array<string>(size).fill("");
+  const matchCount = size / 2;
+  const byeMatchIndexes = spreadByeMatchIndexes(matchCount).slice(0, byeCount);
 
   byeSeeds.forEach((seed, index) => {
-    seeds[index] = seed;
-    seeds[size - 1 - index] = "BYE";
+    const matchIndex = byeMatchIndexes[index];
+    seeds[matchIndex] = seed;
+    seeds[size - 1 - matchIndex] = "BYE";
   });
 
-  buildFirstRoundPairsAvoidingSameGroup(remaining).forEach(([p1, p2], index) => {
-    seeds[byeCount + index] = p1;
-    seeds[size - byeCount - 1 - index] = p2;
-  });
+  const openMatchIndexes = Array.from({ length: matchCount }, (_, index) => index)
+    .filter((index) => !byeMatchIndexes.includes(index));
+
+  buildFirstRoundPairsAvoidingSameGroup(remaining).forEach(
+    ([p1, p2], index) => {
+      const matchIndex = openMatchIndexes[index];
+
+      if (matchIndex === undefined) return;
+
+      seeds[matchIndex] = p1;
+      seeds[size - 1 - matchIndex] = p2;
+    }
+  );
 
   return seeds.map((seed) => seed || "BYE");
 }
