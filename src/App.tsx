@@ -211,6 +211,32 @@ function parseGroupQualifier(code: string) {
   };
 }
 
+function qualifierGroup(code: string) {
+  return parseGroupQualifier(code)?.group || "";
+}
+
+function buildFirstRoundPairsAvoidingSameGroup(entrants: string[]) {
+  const candidates = [...entrants];
+  const pairs: Array<[string, string]> = [];
+
+  while (candidates.length >= 2) {
+    const p1 = candidates.shift()!;
+    const p1Group = qualifierGroup(p1);
+    let opponentIndex = candidates.findIndex(
+      (candidate) => qualifierGroup(candidate) !== p1Group
+    );
+
+    if (opponentIndex === -1) {
+      opponentIndex = 0;
+    }
+
+    const [p2] = candidates.splice(opponentIndex, 1);
+    pairs.push([p1, p2]);
+  }
+
+  return pairs;
+}
+
 function buildSeedSlots(entrants: string[], size: number) {
   const byeCount = size - entrants.length;
 
@@ -285,12 +311,9 @@ function buildSeedSlots(entrants: string[], size: number) {
     seeds[size - 1 - index] = "BYE";
   });
 
-  remaining.forEach((seed, index) => {
-    const slot = byeCount + index;
-
-    if (slot < size - byeCount) {
-      seeds[slot] = seed;
-    }
+  buildFirstRoundPairsAvoidingSameGroup(remaining).forEach(([p1, p2], index) => {
+    seeds[byeCount + index] = p1;
+    seeds[size - byeCount - 1 - index] = p2;
   });
 
   return seeds.map((seed) => seed || "BYE");
@@ -416,6 +439,12 @@ function playerName(players: PlayerMap, code: string): string {
 
 function hasRegisteredPlayer(players: PlayerMap, code: string) {
   return code !== "BYE" && Boolean(players[code]?.trim());
+}
+
+function isDisplayableDrawMatch(match: DrawMatch) {
+  if (!match.p1 && !match.p2) return false;
+  if (match.p1 === "BYE" && match.p2 === "BYE") return false;
+  return true;
 }
 
 function isSearchedPlayer(
@@ -1448,7 +1477,7 @@ const closeTournament = async () => {
 
     const updatedMainMeta: MatchMeta = {};
 
-    mainMatches.forEach((match, index) => {
+    mainMatches.filter(isDisplayableDrawMatch).forEach((match, index) => {
       updatedMainMeta[match.id] = {
         court: courts[index % courts.length].name,
         status: "Waiting",
@@ -1457,7 +1486,7 @@ const closeTournament = async () => {
 
     const updatedLoserMeta: MatchMeta = {};
 
-    loserMatches.forEach((match, index) => {
+    loserMatches.filter(isDisplayableDrawMatch).forEach((match, index) => {
       updatedLoserMeta[match.id] = {
         court: courts[index % courts.length].name,
         status: "Waiting",
@@ -3127,11 +3156,12 @@ function DrawSection({
   playerSearch: string;
   playerMode?: boolean;
 }) {
-  const rounds = [...new Set(matches.map((m) => m.round))];
+  const visibleMatches = matches.filter(isDisplayableDrawMatch);
+  const rounds = [...new Set(visibleMatches.map((m) => m.round))];
 
   
 
-  if (matches.length === 0) {
+  if (visibleMatches.length === 0) {
   return (
     <section>
       <h2 className="sport-section-title mb-4">
@@ -3160,7 +3190,7 @@ function DrawSection({
             <CardContent className="p-5 space-y-3">
               <h3 className={playerMode ? "font-extrabold text-lg text-white" : "font-extrabold text-lg text-slate-950"}>{round}</h3>
 
-              {matches
+              {visibleMatches
                 .filter((m) => m.round === round)
                 .map((m) => (
                   <div
@@ -3169,7 +3199,7 @@ function DrawSection({
                   >
                     <div className={playerMode ? "text-xs text-white/60 font-semibold" : "text-xs text-slate-500 font-semibold"}>
   {round} - Match {
-    matches
+    visibleMatches
       .filter((x) => x.round === round)
       .findIndex((x) => x.id === m.id) + 1
   }
