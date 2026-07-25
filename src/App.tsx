@@ -215,16 +215,76 @@ function qualifierGroup(code: string) {
   return parseGroupQualifier(code)?.group || "";
 }
 
-function buildFirstRoundPairsAvoidingSameGroup(entrants: string[]) {
+type QualifierSeed = {
+  group: string;
+  rank: number;
+};
+
+function buildQualifierSeedEntries(entrants: string[]) {
+  const groupCounts = new Map<string, number>();
+
+  return entrants
+    .map((code) => {
+      const parsed = parseGroupQualifier(code);
+
+      if (!parsed) return { code, seed: null };
+
+      const rank = (groupCounts.get(parsed.group) ?? 0) + 1;
+      groupCounts.set(parsed.group, rank);
+
+      return {
+        code,
+        seed: {
+          group: parsed.group,
+          rank,
+        },
+      };
+    })
+    .filter(
+      (entrant): entrant is { code: string; seed: QualifierSeed } =>
+        entrant.seed !== null
+    );
+}
+
+function qualifierGroupFromSeedMap(
+  code: string,
+  seedMap?: Map<string, QualifierSeed>
+) {
+  return seedMap?.get(code)?.group || qualifierGroup(code);
+}
+
+function qualifierRank(code: string, seedMap?: Map<string, QualifierSeed>) {
+  return seedMap?.get(code)?.rank ?? parseGroupQualifier(code)?.rank ?? null;
+}
+
+function buildFirstRoundPairsAvoidingSameSeedConflict(
+  entrants: string[],
+  seedMap?: Map<string, QualifierSeed>
+) {
   const candidates = [...entrants];
   const pairs: Array<[string, string]> = [];
 
   while (candidates.length >= 2) {
     const p1 = candidates.shift()!;
-    const p1Group = qualifierGroup(p1);
+    const p1Group = qualifierGroupFromSeedMap(p1, seedMap);
+    const p1Rank = qualifierRank(p1, seedMap);
     let opponentIndex = candidates.findIndex(
-      (candidate) => qualifierGroup(candidate) !== p1Group
+      (candidate) =>
+        qualifierGroupFromSeedMap(candidate, seedMap) !== p1Group &&
+        qualifierRank(candidate, seedMap) !== p1Rank
     );
+
+    if (opponentIndex === -1) {
+      opponentIndex = candidates.findIndex(
+        (candidate) => qualifierGroupFromSeedMap(candidate, seedMap) !== p1Group
+      );
+    }
+
+    if (opponentIndex === -1) {
+      opponentIndex = candidates.findIndex(
+        (candidate) => qualifierRank(candidate, seedMap) !== p1Rank
+      );
+    }
 
     if (opponentIndex === -1) {
       opponentIndex = 0;
@@ -251,17 +311,81 @@ function spreadByeMatchIndexes(matchCount: number) {
   return indexes;
 }
 
-function buildSeedSlots(entrants: string[], size: number) {
+function matchPlayersFromSeedSlots(seeds: string[], matchIndex: number) {
+  const size = seeds.length;
+
+  return [seeds[matchIndex], seeds[size - 1 - matchIndex]].filter(
+    (seed) => seed && seed !== "BYE"
+  );
+}
+
+function hasQuarterGroupConflict(
+  pair: [string, string],
+  matchIndex: number,
+  seeds: string[],
+  seedMap?: Map<string, QualifierSeed>
+) {
+  const pairedMatchIndex = matchIndex % 2 === 0 ? matchIndex + 1 : matchIndex - 1;
+  const pairedGroups = matchPlayersFromSeedSlots(seeds, pairedMatchIndex).map(
+    (player) => qualifierGroupFromSeedMap(player, seedMap)
+  );
+
+  if (pairedGroups.length === 0) return false;
+
+  return pair.some((player) =>
+    pairedGroups.includes(qualifierGroupFromSeedMap(player, seedMap))
+  );
+}
+
+function buildSeedSlots(
+  entrants: string[],
+  size: number,
+  beginnerPlayers?: PlayerMap
+) {
   const byeCount = size - entrants.length;
 
   if (byeCount <= 0) return [...entrants];
 
-  const parsedEntrants = entrants
-    .map((code) => ({ code, seed: parseGroupQualifier(code) }))
-    .filter(
-      (entrant): entrant is { code: string; seed: { group: string; rank: number } } =>
-        entrant.seed !== null
-    );
+  if (size === 16 && entrants.length === 12 && beginnerPlayers) {
+    const findEntrantByName = (nameFragment: string) =>
+      entrants.find((code) =>
+        (beginnerPlayers[code] ?? "")
+          .trim()
+          .toUpperCase()
+          .includes(nameFragment)
+      ) ?? "";
+
+    const beginnerSlots = [
+      findEntrantByName("FADZIL"),
+      findEntrantByName("KEE CHEN"),
+      findEntrantByName("AWIE"),
+      findEntrantByName("QASEEH"),
+      findEntrantByName("CHUA PEI KERN"),
+      findEntrantByName("AZIM"),
+      findEntrantByName("ZICO"),
+      findEntrantByName("TAN HANG MI"),
+      findEntrantByName("GOH PING KUEN"),
+      "BYE",
+      findEntrantByName("ASIL IQBAL"),
+      "BYE",
+      findEntrantByName("JUN XUAN"),
+      "BYE",
+      findEntrantByName("KOH YEE SOON"),
+      "BYE",
+    ];
+
+    const resolvedEntrants = beginnerSlots.filter((slot) => slot !== "BYE");
+
+    if (
+      resolvedEntrants.every(Boolean) &&
+      new Set(resolvedEntrants).size === entrants.length
+    ) {
+      return beginnerSlots;
+    }
+  }
+
+  const parsedEntrants = buildQualifierSeedEntries(entrants);
+  const seedMap = new Map(parsedEntrants.map((entrant) => [entrant.code, entrant.seed]));
 
   const ranks = Array.from(new Set(parsedEntrants.map((entrant) => entrant.seed.rank))).sort(
     (a, b) => a - b
@@ -287,20 +411,20 @@ function buildSeedSlots(entrants: string[], size: number) {
     if (topSeeds.every(Boolean) && secondSeeds.every(Boolean)) {
       return [
         topSeeds[0],
+        secondSeeds[0],
+        topSeeds[1],
+        secondSeeds[2],
+        topSeeds[2],
         topSeeds[4],
         topSeeds[3],
         topSeeds[5],
-        topSeeds[1],
-        secondSeeds[0],
-        topSeeds[2],
-        secondSeeds[1],
-        secondSeeds[2],
-        "BYE",
-        secondSeeds[3],
-        "BYE",
         secondSeeds[4],
         "BYE",
         secondSeeds[5],
+        "BYE",
+        secondSeeds[3],
+        "BYE",
+        secondSeeds[1],
         "BYE",
       ];
     }
@@ -330,26 +454,60 @@ function buildSeedSlots(entrants: string[], size: number) {
 
   const openMatchIndexes = Array.from({ length: matchCount }, (_, index) => index)
     .filter((index) => !byeMatchIndexes.includes(index));
-
-  buildFirstRoundPairsAvoidingSameGroup(remaining).forEach(
-    ([p1, p2], index) => {
-      const matchIndex = openMatchIndexes[index];
-
-      if (matchIndex === undefined) return;
-
-      seeds[matchIndex] = p1;
-      seeds[size - 1 - matchIndex] = p2;
-    }
+  const remainingPairs = buildFirstRoundPairsAvoidingSameSeedConflict(
+    remaining,
+    seedMap
   );
+
+  openMatchIndexes.forEach((matchIndex) => {
+    let pairIndex = remainingPairs.findIndex(
+      (pair) => !hasQuarterGroupConflict(pair, matchIndex, seeds, seedMap)
+    );
+
+    if (pairIndex === -1) {
+      pairIndex = 0;
+    }
+
+    const pair = remainingPairs.splice(pairIndex, 1)[0];
+
+    if (!pair) return;
+
+    const [p1, p2] = pair;
+
+    seeds[matchIndex] = p1;
+    seeds[size - 1 - matchIndex] = p2;
+  });
+
+  remainingPairs.forEach(([p1, p2]) => {
+    const matchIndex = openMatchIndexes.find(
+      (index) => !seeds[index] && !seeds[size - 1 - index]
+    );
+
+    if (matchIndex === undefined) return;
+
+    seeds[matchIndex] = p1;
+    seeds[size - 1 - matchIndex] = p2;
+  });
 
   return seeds.map((seed) => seed || "BYE");
 }
 
-function buildBracket(prefix: string, entrants: string[]): DrawMatch[] {
+function buildBracket(
+  prefix: string,
+  entrants: string[],
+  categoryName = "",
+  players?: PlayerMap
+): DrawMatch[] {
   if (entrants.length < 2) return [];
 
   const size = nextPowerOfTwo(entrants.length);
-  const seeds = buildSeedSlots(entrants, size);
+  const useBeginnerMainLayout =
+    prefix === "MAIN" && categoryName.toLowerCase().includes("beginner");
+  const seeds = buildSeedSlots(
+    entrants,
+    size,
+    useBeginnerMainLayout ? players : undefined
+  );
 
   const matches: DrawMatch[] = [];
   let roundSize = size;
@@ -686,7 +844,7 @@ const addDrawPoints = (
 
 addDrawPoints(
   resolveDraw(
-    buildBracket("MAIN", mainEntrants),
+    buildBracket("MAIN", mainEntrants, category.name, category.players),
     category.mainScores,
     category.matchFormat
   ),
@@ -1161,8 +1319,14 @@ console.log(rankingRows);
   }, [groups, standings, activeCategory.players, activeCategory.topQualify]);
 
   const mainTemplate = useMemo(
-    () => buildBracket("MAIN", mainEntrants),
-    [mainEntrants]
+    () =>
+      buildBracket(
+        "MAIN",
+        mainEntrants,
+        activeCategory.name,
+        activeCategory.players
+      ),
+    [mainEntrants, activeCategory.name, activeCategory.players]
   );
 
   const loserTemplate = useMemo(
@@ -1711,7 +1875,12 @@ const closeTournament = async () => {
           .map((p) => p.code) || []
     );
 
-    const mainDrawMatches = buildBracket("MAIN", mainEntrantsForCat)
+    const mainDrawMatches = buildBracket(
+      "MAIN",
+      mainEntrantsForCat,
+      cat.name,
+      cat.players
+    )
   .filter((m) => m.p1 && m.p2)
   .map((m) => ({
     id: m.id,
