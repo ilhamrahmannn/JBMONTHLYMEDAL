@@ -672,6 +672,7 @@ function getPointSystem(categoryName: string) {
     ? {
         participation: 15,
         groupWin: 8,
+        mainR16: 10,
         mainQF: 20,
         mainSF: 35,
         runnerUp: 60,
@@ -682,6 +683,7 @@ function getPointSystem(categoryName: string) {
     : {
         participation: 10,
         groupWin: 5,
+        mainR16: 5,
         mainQF: 15,
         mainSF: 25,
         runnerUp: 40,
@@ -806,6 +808,12 @@ const loserEntrants = groups.flatMap(
       .map((p) => p.code) || []
 );
 
+mainEntrants.forEach((code) => {
+  if (ranking[code]) {
+    ranking[code].points += points.mainR16;
+  }
+});
+
 const addDrawPoints = (
   matches: DrawMatch[],
   scores: ScoreMap,
@@ -816,6 +824,27 @@ const addDrawPoints = (
 
     if (!winner || !ranking[winner]) return;
 
+    const loser = winner === m.p1 ? m.p2 : m.p1;
+    const isPlayedMatch =
+      m.p1 !== "BYE" &&
+      m.p2 !== "BYE" &&
+      Boolean(ranking[m.p1]) &&
+      Boolean(ranking[m.p2]) &&
+      Boolean(ranking[loser]);
+    const isByeWin =
+      (m.p1 === "BYE" || m.p2 === "BYE") &&
+      Boolean(ranking[winner]);
+
+    if (isPlayedMatch) {
+      ranking[m.p1].played++;
+      ranking[m.p2].played++;
+      ranking[winner].wins++;
+      ranking[loser].losses++;
+    } else if (isByeWin) {
+      ranking[winner].played++;
+      ranking[winner].wins++;
+    }
+
     if (m.round === "Quarter Final") {
       ranking[winner].points += isLoserPool ? 5 : points.mainQF;
     }
@@ -825,8 +854,6 @@ const addDrawPoints = (
     }
 
     if (m.round === "Final") {
-  const loser = winner === m.p1 ? m.p2 : m.p1;
-
   ranking[winner].points += isLoserPool
     ? points.loserChampion
     : points.champion;
