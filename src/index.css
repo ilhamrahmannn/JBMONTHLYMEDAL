@@ -362,3 +362,73 @@
 .category-fade {
   animation: categoryFade 0.25s ease-out;
 }
+.ranking-confetti {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.ranking-confetti-ribbon {
+  position: absolute;
+  top: -70px;
+  width: 9px;
+  height: 46px;
+  border-radius: 999px;
+  opacity: 0;
+  box-shadow: 0 2px 8px rgb(15 23 42 / 18%);
+  animation-name: ranking-ribbon-fall;
+  animation-timing-function: cubic-bezier(0.2, 0.65, 0.35, 1);
+  animation-fill-mode: forwards;
+}
+
+.ranking-confetti-ribbon:nth-child(3n) {
+  width: 12px;
+  height: 26px;
+  border-radius: 3px;
+}
+
+.ranking-confetti-ribbon:nth-child(even) {
+  animation-name: ranking-ribbon-fall-reverse;
+}
+
+@keyframes ranking-ribbon-fall {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, -8vh, 0) rotate(0deg);
+  }
+  8% {
+    opacity: 1;
+  }
+  88% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(90px, 110vh, 0) rotate(900deg);
+  }
+}
+
+@keyframes ranking-ribbon-fall-reverse {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, -8vh, 0) rotate(0deg);
+  }
+  8% {
+    opacity: 1;
+  }
+  88% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(-90px, 110vh, 0) rotate(-900deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ranking-confetti {
+    display: none;
+  }
+}

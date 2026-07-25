@@ -11,11 +11,19 @@ import {
   updateDoc,
 } from "firebase/firestore";
 import { db } from "./firebase";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Card, CardContent } from "./components/ui/card";
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
-import { Search, Trophy, Users, RotateCcw, Settings } from "lucide-react";
+import {
+  Search,
+  Trophy,
+  Users,
+  RotateCcw,
+  Settings,
+  Volume2,
+  VolumeX,
+} from "lucide-react";
 import { deleteDoc } from "firebase/firestore";
 import { Trash2 } from "lucide-react";
 
@@ -3762,8 +3770,78 @@ function PlayerBracketCard({
 }
 
 function RankingView({ rankingRows }: { rankingRows: RankingRow[] }) {
+  const musicPlayerRef = useRef<HTMLIFrameElement>(null);
+  const [isMusicMuted, setIsMusicMuted] = useState(false);
+
+  const toggleRankingMusic = () => {
+    const nextMuted = !isMusicMuted;
+    const command = nextMuted ? "mute" : "unMute";
+
+    musicPlayerRef.current?.contentWindow?.postMessage(
+      JSON.stringify({
+        event: "command",
+        func: command,
+        args: [],
+      }),
+      "https://www.youtube.com"
+    );
+
+    if (!nextMuted) {
+      musicPlayerRef.current?.contentWindow?.postMessage(
+        JSON.stringify({
+          event: "command",
+          func: "playVideo",
+          args: [],
+        }),
+        "https://www.youtube.com"
+      );
+    }
+
+    setIsMusicMuted(nextMuted);
+  };
+
   return (
     <div className="sport-page p-4 md:p-6">
+      <div className="ranking-confetti" aria-hidden="true">
+        {Array.from({ length: 44 }, (_, index) => (
+          <span
+            key={index}
+            className="ranking-confetti-ribbon"
+            style={{
+              left: `${(index * 37) % 100}%`,
+              backgroundColor: [
+                "#facc15",
+                "#22c55e",
+                "#06b6d4",
+                "#f97316",
+                "#ec4899",
+                "#8b5cf6",
+              ][index % 6],
+              animationDelay: `${(index % 11) * 0.09}s`,
+              animationDuration: `${2.8 + (index % 7) * 0.22}s`,
+            }}
+          />
+        ))}
+      </div>
+
+      <iframe
+        ref={musicPlayerRef}
+        title="Europe - The Final Countdown"
+        src="https://www.youtube.com/embed/9jK-NcRmVcw?autoplay=1&mute=0&controls=0&loop=1&playlist=9jK-NcRmVcw&enablejsapi=1"
+        allow="autoplay; encrypted-media"
+        className="pointer-events-none fixed h-px w-px opacity-0"
+      />
+
+      <button
+        type="button"
+        onClick={toggleRankingMusic}
+        className="fixed bottom-5 right-5 z-50 inline-flex items-center gap-2 rounded-full bg-slate-950 px-4 py-3 text-sm font-bold text-white shadow-xl transition hover:bg-emerald-700 focus:outline-none focus:ring-4 focus:ring-emerald-300"
+        aria-label={isMusicMuted ? "Unmute ranking music" : "Mute ranking music"}
+      >
+        {isMusicMuted ? <VolumeX className="size-5" /> : <Volume2 className="size-5" />}
+        {isMusicMuted ? "Unmute Music" : "Mute Music"}
+      </button>
+
       <div className="max-w-6xl mx-auto space-y-6">
         <BrandHomeLink />
         <div className="sport-hero">
