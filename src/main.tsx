@@ -5,6 +5,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import "./index.css";
 import App from "./App";
 import HomePage from "./HomePage";
+import RegistrationPage from "./RegistrationPage";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
@@ -16,6 +17,7 @@ createRoot(document.getElementById("root")!).render(
         <Route path="/playerview" element={<App viewMode="player" />} />
         <Route path="/acceptance-list" element={<HomePage />} />
         <Route path="/ranking" element={<App viewMode="ranking" />} />
+        <Route path="/register" element={<RegistrationPage />} />
         <Route path="/activity" element={<App viewMode="activity" />} />
         <Route path="/activity/:tournamentId" element={<App viewMode="activityDetail" />} />
       </Routes>

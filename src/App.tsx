@@ -9,6 +9,8 @@ import {
   getDoc,
   serverTimestamp,
   updateDoc,
+  increment,
+  writeBatch,
 } from "firebase/firestore";
 import { db } from "./firebase";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -23,14 +25,60 @@ import {
   Settings,
   Volume2,
   VolumeX,
+  LayoutDashboard,
+  UserCheck,
+  SlidersHorizontal,
+  ListChecks,
+  Swords,
+  CalendarClock,
+  Activity,
+  House,
+  Download,
 } from "lucide-react";
 import { deleteDoc } from "firebase/firestore";
 import { Trash2 } from "lucide-react";
 
 
 const ADMIN_PASSWORD = "JBMM2026";
+const normalizePlayerName = (value: string) =>
+  value.trim().replace(/\s+/g, " ").toUpperCase();
+const rankingDocumentId = (category: string, playerName: string) =>
+  `${category}-${normalizePlayerName(playerName)}`
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
 
 type PlayerMap = Record<string, string>;
+type RegistrationStatus = "pending" | "approved" | "rejected";
+type TournamentRegistration = {
+  id: string;
+  tournamentId: string;
+  fullName: string;
+  normalizedName: string;
+  email: string;
+  phone: string;
+  category: string;
+  categoryLabel?: string;
+  status: RegistrationStatus;
+  dateOfBirth?: string;
+  origin?: string;
+  shirtSize?: string;
+  ntrpLevel?: string;
+  rankingPosition?: number | null;
+  rankingPoints?: number;
+  rankingStatus?: string;
+  ageAtTournament?: number;
+  isNationalPlayer?: boolean;
+  eligibilityConfirmed?: boolean;
+  paymentAmount?: number;
+  paymentBank?: string;
+  paymentAccount?: string;
+  paymentProofUrl?: string;
+  paymentProofName?: string;
+  shirtSurcharge?: number;
+  agreementAccepted?: boolean;
+  submittedAt?: any;
+};
 type MatchStatus = "Waiting" | "On Court" | "Finished";
 type MatchFormat = "SHORT_SET_4" | "NORMAL_SET_6" | "PRO_SET_8";
 
@@ -1121,6 +1169,7 @@ export default function App({ viewMode }: AppProps) {
     useState<PlayerSection>("groups");
   const [playerDrawTab, setPlayerDrawTab] = useState<PlayerDrawTab>("main");
   const [adminActivityOpen, setAdminActivityOpen] = useState(false);
+  const [adminRegistrationOpen, setAdminRegistrationOpen] = useState(false);
 
 const togglePlayerSection = (key: keyof typeof openPlayerSections) => {
   setOpenPlayerSections((prev) => ({
@@ -1132,6 +1181,8 @@ const togglePlayerSection = (key: keyof typeof openPlayerSections) => {
 const [tournamentActivities, setTournamentActivities] = useState<any[]>([]);
 const [currentTournamentId, setCurrentTournamentId] = useState<string>("");
 const [acceptanceInput, setAcceptanceInput] = useState("");
+const [registrations, setRegistrations] = useState<TournamentRegistration[]>([]);
+const [persistentRankingRows, setPersistentRankingRows] = useState<RankingRow[]>([]);
 
 
 const isPlayerView = viewMode === "player";
@@ -1145,6 +1196,9 @@ const showPlayerSection = (section: PlayerSection) =>
     calculateCategoryRanking(cat)
   );
 }, [categories]);
+
+const officialRankingRows =
+  persistentRankingRows.length > 0 ? persistentRankingRows : rankingRows;
 
 console.log("RANKING TEST");
 console.log(rankingRows);
@@ -1261,6 +1315,43 @@ console.log(rankingRows);
     return () => {
       unsubscribeLive();
       unsubscribeTournament?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    const unsubscribeRegistrations = onSnapshot(
+      collection(db, "registrations"),
+      (snapshot) => {
+        setRegistrations(
+          snapshot.docs
+            .map((registration) => ({
+              id: registration.id,
+              ...registration.data(),
+            })) as TournamentRegistration[]
+        );
+      }
+    );
+
+    const unsubscribeRankings = onSnapshot(
+      collection(db, "playerRankings"),
+      (snapshot) => {
+        setPersistentRankingRows(
+          snapshot.docs
+            .map((ranking) => ranking.data() as RankingRow)
+            .sort(
+              (a, b) =>
+                b.points - a.points ||
+                b.titles - a.titles ||
+                b.wins - a.wins ||
+                a.playerName.localeCompare(b.playerName)
+            )
+        );
+      }
+    );
+
+    return () => {
+      unsubscribeRegistrations();
+      unsubscribeRankings();
     };
   }, []);
 
@@ -1433,6 +1524,104 @@ console.log(rankingRows);
   })
   .slice(0, 5);
 
+  const currentRegistrations = registrations.filter(
+    (registration) => registration.tournamentId === currentTournamentId
+  );
+
+  const updateRegistrationStatus = async (
+    registration: TournamentRegistration,
+    status: RegistrationStatus
+  ) => {
+    await updateDoc(doc(db, "registrations", registration.id), {
+      status,
+      reviewedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+
+    if (status === "approved") {
+      await addDoc(collection(db, "mail"), {
+        to: registration.email,
+        message: {
+          subject: `Registration confirmed — ${tournamentName}`,
+          text: `Hi ${registration.fullName}, your registration for ${tournamentName} (${registration.category}) has been approved.`,
+          html: `
+            <h2>Registration confirmed</h2>
+            <p>Hi ${registration.fullName},</p>
+            <p>Your registration for <strong>${tournamentName}</strong> has been approved.</p>
+            <p><strong>Category:</strong> ${registration.category}<br />
+            <strong>Date:</strong> ${tournamentDate}</p>
+            <p>See you on court!</p>
+          `,
+        },
+        registrationId: registration.id,
+        tournamentId: currentTournamentId,
+        createdAt: serverTimestamp(),
+      });
+    }
+  };
+
+  const seedApprovedRegistrations = (category: Category) => {
+    const approvedNames = currentRegistrations
+      .filter(
+        (registration) =>
+          registration.status === "approved" &&
+          registration.category.trim().toLowerCase() ===
+            category.name.trim().toLowerCase()
+      )
+      .map((registration) => registration.fullName);
+
+    if (approvedNames.length === 0) {
+      alert(`No approved registrations found for ${category.name}`);
+      return;
+    }
+
+    const maxPlayers = category.numberOfGroups * category.playersPerGroup;
+
+    if (approvedNames.length > maxPlayers) {
+      alert(
+        `${category.name} has ${approvedNames.length} approved players but only ${maxPlayers} available slots.`
+      );
+      return;
+    }
+
+    const seededPlayers = buildSeededAcceptancePlayers(
+      approvedNames,
+      category.name,
+      officialRankingRows
+    );
+    const newPlayers = snakeSeedPlayersIntoGroups(
+      seededPlayers,
+      category.numberOfGroups,
+      category.playersPerGroup
+    );
+    const newGroups = generateGroups(category.numberOfGroups);
+
+    setCategories((previous) =>
+      previous.map((item) =>
+        item.id === category.id
+          ? {
+              ...item,
+              players: newPlayers,
+              groupMatches: makeRoundRobinMatches(
+                newGroups,
+                category.playersPerGroup,
+                category.name.replace(/\s+/g, "-").toLowerCase()
+              ),
+              mainScores: {},
+              loserScores: {},
+              mainMeta: {},
+              loserMeta: {},
+            }
+          : item
+      )
+    );
+    setActiveCategoryId(category.id);
+    setOrderOfPlay([]);
+    alert(
+      `${approvedNames.length} approved players seeded into ${category.name} using official ranking points.`
+    );
+  };
+
   const generateSeededGroupDraw = () => {
   const names = acceptanceInput
     .split(/\r?\n/)
@@ -1457,7 +1646,7 @@ console.log(rankingRows);
   const seededPlayers = buildSeededAcceptancePlayers(
     names,
     activeCategory.name,
-    rankingRows
+    officialRankingRows
   );
 
   const newPlayers = snakeSeedPlayersIntoGroups(
@@ -1589,15 +1778,53 @@ const closeTournament = async () => {
 
   if (!confirmClose) return;
 
-  await updateDoc(doc(db, "tournaments", currentTournamentId), {
+  const tournamentRef = doc(db, "tournaments", currentTournamentId);
+  const tournamentSnapshot = await getDoc(tournamentRef);
+
+  if (tournamentSnapshot.data()?.rankingsPublished) {
+    alert("This tournament has already been published to the official ranking.");
+    return;
+  }
+
+  const batch = writeBatch(db);
+
+  batch.update(tournamentRef, {
     status: "closed",
     closedAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
+    rankingsPublished: true,
   });
 
+  rankingRows.forEach((row) => {
+    const rankingRef = doc(
+      db,
+      "playerRankings",
+      rankingDocumentId(row.category, row.playerName)
+    );
+
+    batch.set(
+      rankingRef,
+      {
+        playerCode: rankingDocumentId(row.category, row.playerName),
+        playerName: row.playerName,
+        normalizedName: normalizePlayerName(row.playerName),
+        category: row.category,
+        points: increment(row.points),
+        played: increment(row.played),
+        wins: increment(row.wins),
+        losses: increment(row.losses),
+        titles: increment(row.titles),
+        tournamentsPlayed: increment(1),
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+  });
+
+  await batch.commit();
   setCurrentTournamentId("");
 
-  alert("Tournament closed and saved to activity");
+  alert("Tournament closed, saved to activity, and published to official ranking");
 };
 
   const updateGroupScore = (id: string, key: "s1" | "s2", value: string) => {
@@ -2072,7 +2299,7 @@ if (viewMode === "admin" && !isAdminAuthenticated) {
 }
 
 if (viewMode === "ranking") {
-  return <RankingView rankingRows={rankingRows} />;
+  return <RankingView rankingRows={officialRankingRows} />;
 }
 
 if (viewMode === "activity") {
@@ -2098,10 +2325,120 @@ if (viewMode === "admin" && isAdminAuthenticated && adminActivityOpen) {
   );
 }
 
+if (viewMode === "admin" && isAdminAuthenticated && adminRegistrationOpen) {
   return (
-    <div className={isPlayerView ? "player-view-shell" : "sport-page p-4 md:p-6"}>
-      <div className={isPlayerView ? "player-view-frame space-y-4" : "max-w-7xl mx-auto space-y-8"}>
-        <BrandHomeLink dark={isPlayerView} />
+    <RegistrationVerificationPage
+      tournamentName={tournamentName}
+      tournamentDate={tournamentDate}
+      registrations={currentRegistrations}
+      rankingRows={officialRankingRows}
+      categories={categories}
+      onBack={() => setAdminRegistrationOpen(false)}
+      onUpdateStatus={updateRegistrationStatus}
+      onSeedCategory={seedApprovedRegistrations}
+    />
+  );
+}
+
+  return (
+    <div
+      className={
+        isPlayerView
+          ? "player-view-shell"
+          : viewMode === "admin"
+            ? "admin-dashboard-shell"
+            : "sport-page p-4 md:p-6"
+      }
+    >
+      {viewMode === "admin" && (
+        <aside className="admin-sidebar">
+          <div className="admin-sidebar-brand">
+            <span className="admin-sidebar-logo">JB</span>
+            <div>
+              <strong>Tournament Manager</strong>
+              <small>JB Monthly Medal</small>
+            </div>
+          </div>
+
+          <div className="admin-active-tournament">
+            <span className="admin-active-label">
+              <i />
+              Active tournament
+            </span>
+            <strong>{tournamentName}</strong>
+            <small>{tournamentDate} · {activeCategory.name}</small>
+          </div>
+
+          <nav className="admin-sidebar-nav" aria-label="Admin navigation">
+            <a href="#admin-overview" className="admin-sidebar-link admin-sidebar-link-active">
+              <LayoutDashboard />
+              Overview
+            </a>
+            <button
+              type="button"
+              onClick={() => setAdminRegistrationOpen(true)}
+              className="admin-sidebar-link"
+            >
+              <UserCheck />
+              Registrations
+              {currentRegistrations.filter((item) => item.status === "pending").length > 0 && (
+                <span className="admin-sidebar-count">
+                  {currentRegistrations.filter((item) => item.status === "pending").length}
+                </span>
+              )}
+            </button>
+            <a href="#admin-setup" className="admin-sidebar-link">
+              <SlidersHorizontal />
+              Tournament Setup
+            </a>
+            <a href="#admin-acceptance" className="admin-sidebar-link">
+              <ListChecks />
+              Acceptance & Seeding
+            </a>
+            <a href="#admin-competition" className="admin-sidebar-link">
+              <Swords />
+              Matches & Draws
+            </a>
+            <a href="#admin-order" className="admin-sidebar-link">
+              <CalendarClock />
+              Order of Play
+            </a>
+            <button
+              type="button"
+              onClick={() => setAdminActivityOpen(true)}
+              className="admin-sidebar-link"
+            >
+              <Activity />
+              Tournament Activity
+            </button>
+          </nav>
+
+          <div className="admin-sidebar-footer">
+            <Link to="/" className="admin-sidebar-link">
+              <House />
+              Event Homepage
+            </Link>
+            <button
+              type="button"
+              onClick={saveTournamentToFirebase}
+              className="admin-sidebar-save"
+            >
+              Save Live Tournament
+            </button>
+          </div>
+        </aside>
+      )}
+
+      <main
+        className={
+          isPlayerView
+            ? "player-view-frame space-y-4"
+            : viewMode === "admin"
+              ? "admin-dashboard-main space-y-8"
+              : "max-w-7xl mx-auto space-y-8"
+        }
+      >
+        {viewMode !== "admin" && <BrandHomeLink dark={isPlayerView} />}
         {isPlayerView ? (
           <header className="flex items-start justify-between gap-4">
             <div>
@@ -2115,7 +2452,7 @@ if (viewMode === "admin" && isAdminAuthenticated && adminActivityOpen) {
             <span className="player-live-badge">Live</span>
           </header>
         ) : (
-        <div className="sport-hero flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
+        <div id="admin-overview" className="sport-hero scroll-mt-5 flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
           <div>
             <div className="mb-3 inline-flex rounded-full bg-white/15 px-3 py-1 text-xs font-bold uppercase tracking-wide text-emerald-50 ring-1 ring-white/20">
               {tournamentDate} | {activeCategory.name}
@@ -2181,7 +2518,133 @@ if (viewMode === "admin" && isAdminAuthenticated && adminActivityOpen) {
         )}
 {viewMode === "admin" && (
   <>
-        <Card className="sport-card">
+        {adminRegistrationOpen && (
+        <Card id="admin-registrations" className="sport-card scroll-mt-5">
+          <CardContent className="space-y-5 p-6">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h2 className="sport-section-title">Registration Verification</h2>
+                <p className="mt-1 text-sm font-semibold text-slate-500">
+                  {currentRegistrations.filter((item) => item.status === "pending").length} pending ·{" "}
+                  {currentRegistrations.filter((item) => item.status === "approved").length} approved
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Link
+                  to="/register"
+                  target="_blank"
+                  className="rounded-lg bg-slate-950 px-4 py-2 font-bold text-white"
+                >
+                  Open Registration Form
+                </Link>
+                {categories.map((category) => (
+                  <Button
+                    key={category.id}
+                    type="button"
+                    onClick={() => seedApprovedRegistrations(category)}
+                    className="rounded-lg bg-emerald-600 font-bold text-white hover:bg-emerald-700"
+                  >
+                    Seed {category.name}
+                  </Button>
+                ))}
+              </div>
+            </div>
+
+            {currentRegistrations.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center font-semibold text-slate-500">
+                No registrations received for this tournament.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="sport-table">
+                  <thead>
+                    <tr>
+                      <th className="p-3 text-left">Player</th>
+                      <th className="p-3 text-left">Contact</th>
+                      <th className="p-3 text-left">Category</th>
+                      <th className="p-3 text-center">Ranking Points</th>
+                      <th className="p-3 text-center">Status</th>
+                      <th className="p-3 text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {currentRegistrations
+                      .slice()
+                      .sort((a, b) => {
+                        const order = { pending: 0, approved: 1, rejected: 2 };
+                        return order[a.status] - order[b.status];
+                      })
+                      .map((registration) => {
+                        const ranking = officialRankingRows.find(
+                          (row) =>
+                            normalizePlayerName(row.playerName) ===
+                              registration.normalizedName &&
+                            row.category.trim().toLowerCase() ===
+                              registration.category.trim().toLowerCase()
+                        );
+
+                        return (
+                          <tr key={registration.id}>
+                            <td className="p-3 font-extrabold text-slate-950">
+                              {registration.fullName}
+                            </td>
+                            <td className="p-3 text-sm font-medium text-slate-600">
+                              <div>{registration.email}</div>
+                              <div>{registration.phone}</div>
+                            </td>
+                            <td className="p-3 font-semibold">{registration.category}</td>
+                            <td className="p-3 text-center font-extrabold text-amber-600">
+                              {ranking?.points ?? 0}
+                            </td>
+                            <td className="p-3 text-center">
+                              <span
+                                className={
+                                  registration.status === "approved"
+                                    ? "rounded-full bg-emerald-100 px-3 py-1 text-xs font-extrabold text-emerald-700"
+                                    : registration.status === "rejected"
+                                      ? "rounded-full bg-red-100 px-3 py-1 text-xs font-extrabold text-red-700"
+                                      : "rounded-full bg-amber-100 px-3 py-1 text-xs font-extrabold text-amber-700"
+                                }
+                              >
+                                {registration.status}
+                              </span>
+                            </td>
+                            <td className="p-3">
+                              <div className="flex justify-end gap-2">
+                                <Button
+                                  type="button"
+                                  onClick={() =>
+                                    updateRegistrationStatus(registration, "approved")
+                                  }
+                                  disabled={registration.status === "approved"}
+                                  className="h-9 bg-emerald-600 px-3 text-white hover:bg-emerald-700 disabled:opacity-40"
+                                >
+                                  Approve
+                                </Button>
+                                <Button
+                                  type="button"
+                                  onClick={() =>
+                                    updateRegistrationStatus(registration, "rejected")
+                                  }
+                                  disabled={registration.status === "rejected"}
+                                  className="h-9 bg-red-600 px-3 text-white hover:bg-red-700 disabled:opacity-40"
+                                >
+                                  Reject
+                                </Button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+        )}
+
+        <Card id="admin-setup" className="sport-card scroll-mt-5">
           <CardContent className="p-6 space-y-6">
             <h2 className="sport-section-title flex items-center gap-2">
               <Settings />
@@ -2440,7 +2903,7 @@ if (viewMode === "admin" && isAdminAuthenticated && adminActivityOpen) {
           </CardContent>
         </Card>
 
-        <Card className="sport-card">
+        <Card id="admin-acceptance" className="sport-card scroll-mt-5">
   <CardContent className="p-6">
 <div className="space-y-2">
   <label className="text-sm text-slate-500 font-semibold">
@@ -2539,7 +3002,7 @@ if (viewMode === "admin" && isAdminAuthenticated && adminActivityOpen) {
   </div>
 )}
 
-       <div key={activeCategory.id} className="category-fade space-y-8">
+       <div id="admin-competition" key={activeCategory.id} className="category-fade scroll-mt-5 space-y-8">
         {viewMode === "player" && (
   <div className="space-y-3">
       <div
@@ -3067,7 +3530,10 @@ if (viewMode === "admin" && isAdminAuthenticated && adminActivityOpen) {
   </section>
 )}
 
-          <section className={showPlayerSection("order") ? "" : "hidden"}>
+          <section
+            id={viewMode === "admin" ? "admin-order" : undefined}
+            className={`${showPlayerSection("order") ? "" : "hidden"} scroll-mt-5`}
+          >
             {isPlayerView ? (
               <div className="player-panel-title">
                 <h2 className="text-xl font-medium">Order of Play</h2>
@@ -3342,7 +3808,367 @@ const loserScore = matchCategory.loserScores[match.id];
             </div>
           </section>
         </div>
-      </div>
+      </main>
+    </div>
+  );
+}
+
+function RegistrationVerificationPage({
+  tournamentName,
+  tournamentDate,
+  registrations,
+  rankingRows,
+  categories,
+  onBack,
+  onUpdateStatus,
+  onSeedCategory,
+}: {
+  tournamentName: string;
+  tournamentDate: string;
+  registrations: TournamentRegistration[];
+  rankingRows: RankingRow[];
+  categories: Category[];
+  onBack: () => void;
+  onUpdateStatus: (
+    registration: TournamentRegistration,
+    status: RegistrationStatus
+  ) => Promise<void>;
+  onSeedCategory: (category: Category) => void;
+}) {
+  const [statusFilter, setStatusFilter] = useState<
+    "all" | RegistrationStatus
+  >("pending");
+  const [registrationSearch, setRegistrationSearch] = useState("");
+  const [processingId, setProcessingId] = useState("");
+
+  const filteredRegistrations = registrations
+    .filter(
+      (registration) =>
+        statusFilter === "all" || registration.status === statusFilter
+    )
+    .filter((registration) => {
+      const search = registrationSearch.trim().toLowerCase();
+      if (!search) return true;
+
+      return (
+        registration.fullName.toLowerCase().includes(search) ||
+        registration.email.toLowerCase().includes(search) ||
+        registration.phone.toLowerCase().includes(search) ||
+        registration.category.toLowerCase().includes(search)
+      );
+    })
+    .sort((a, b) => a.fullName.localeCompare(b.fullName));
+
+  const downloadAllRegistrations = () => {
+    const escapeCsv = (value: unknown) => {
+      const text = String(value ?? "");
+      return `"${text.replace(/"/g, '""')}"`;
+    };
+    const formatSubmittedAt = (value: any) => {
+      if (!value) return "";
+      if (typeof value?.toDate === "function") {
+        return value.toDate().toLocaleString("en-MY");
+      }
+      return String(value);
+    };
+    const headers = [
+      "Registration ID",
+      "Status",
+      "Full Name",
+      "Date of Birth",
+      "WhatsApp",
+      "Email",
+      "Location",
+      "T-Shirt Size",
+      "T-Shirt Surcharge (RM)",
+      "Category",
+      "System Category",
+      "NTRP Level",
+      "Detected Ranking",
+      "Ranking Points",
+      "Age at Tournament",
+      "National Player",
+      "Eligibility Confirmed",
+      "Payment Amount (RM)",
+      "Payment Bank",
+      "Payment Account",
+      "Payment Proof File",
+      "Payment Proof URL",
+      "Rules Accepted",
+      "Submitted At",
+    ];
+    const rows = registrations.map((registration) => [
+      registration.id,
+      registration.status,
+      registration.fullName,
+      registration.dateOfBirth,
+      registration.phone,
+      registration.email,
+      registration.origin,
+      registration.shirtSize,
+      registration.shirtSurcharge ?? 0,
+      registration.categoryLabel || registration.category,
+      registration.category,
+      registration.ntrpLevel,
+      registration.rankingPosition
+        ? `#${registration.rankingPosition}`
+        : "NR",
+      registration.rankingPoints ?? 0,
+      registration.ageAtTournament,
+      registration.isNationalPlayer ? "Yes" : "No",
+      registration.eligibilityConfirmed ? "Yes" : "No",
+      registration.paymentAmount ?? 80,
+      registration.paymentBank || "Maybank",
+      registration.paymentAccount || "551137776795",
+      registration.paymentProofName,
+      registration.paymentProofUrl,
+      registration.agreementAccepted ? "Yes" : "No",
+      formatSubmittedAt(registration.submittedAt),
+    ]);
+    const csv = [headers, ...rows]
+      .map((row) => row.map(escapeCsv).join(","))
+      .join("\r\n");
+    const blob = new Blob([`\uFEFF${csv}`], {
+      type: "text/csv;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const downloadLink = document.createElement("a");
+    const safeTournamentName = tournamentName
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "");
+
+    downloadLink.href = url;
+    downloadLink.download = `${safeTournamentName || "tournament"}-registrations.csv`;
+    document.body.appendChild(downloadLink);
+    downloadLink.click();
+    downloadLink.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleStatusUpdate = async (
+    registration: TournamentRegistration,
+    status: RegistrationStatus
+  ) => {
+    setProcessingId(registration.id);
+
+    try {
+      await onUpdateStatus(registration, status);
+    } finally {
+      setProcessingId("");
+    }
+  };
+
+  return (
+    <div className="registration-admin-page">
+      <header className="registration-admin-header">
+        <div>
+          <button type="button" onClick={onBack} className="registration-back">
+            ← Back to Dashboard
+          </button>
+          <p className="registration-eyebrow">Participant management</p>
+          <h1>Registration Verification</h1>
+          <p>
+            {tournamentName} · {tournamentDate}
+          </p>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            onClick={downloadAllRegistrations}
+            disabled={registrations.length === 0}
+            className="rounded-xl bg-blue-600 px-4 py-3 font-bold text-white hover:bg-blue-700 disabled:opacity-40"
+          >
+            <Download className="mr-2 size-4" />
+            Download All Registrations
+          </Button>
+          <Link
+            to="/register"
+            target="_blank"
+            className="rounded-xl bg-slate-950 px-4 py-3 font-bold text-white"
+          >
+            Open Registration Form
+          </Link>
+          {categories.map((category) => (
+            <Button
+              key={category.id}
+              type="button"
+              onClick={() => onSeedCategory(category)}
+              className="rounded-xl bg-emerald-600 font-bold text-white hover:bg-emerald-700"
+            >
+              Seed {category.name}
+            </Button>
+          ))}
+        </div>
+      </header>
+
+      <main className="registration-admin-content">
+        <section className="registration-stat-grid">
+          {(["pending", "approved", "rejected"] as RegistrationStatus[]).map(
+            (status) => (
+              <button
+                type="button"
+                key={status}
+                onClick={() => setStatusFilter(status)}
+                className={`registration-stat-card registration-stat-${status} ${
+                  statusFilter === status ? "registration-stat-active" : ""
+                }`}
+              >
+                <span>{status}</span>
+                <strong>
+                  {registrations.filter((item) => item.status === status).length}
+                </strong>
+                <small>registrations</small>
+              </button>
+            )
+          )}
+        </section>
+
+        <section className="sport-card overflow-hidden">
+          <div className="registration-toolbar">
+            <div>
+              <h2>Participant applications</h2>
+              <p>{filteredRegistrations.length} records shown</p>
+            </div>
+
+            <div className="registration-search">
+              <Search />
+              <input
+                value={registrationSearch}
+                onChange={(event) => setRegistrationSearch(event.target.value)}
+                placeholder="Search name, email or phone..."
+              />
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setStatusFilter("all")}
+              className={
+                statusFilter === "all"
+                  ? "registration-filter-all registration-filter-all-active"
+                  : "registration-filter-all"
+              }
+            >
+              Show all
+            </button>
+          </div>
+
+          {filteredRegistrations.length === 0 ? (
+            <div className="p-12 text-center font-semibold text-slate-500">
+              No registrations match this filter.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="sport-table">
+                <thead>
+                  <tr>
+                    <th className="p-4 text-left">Participant</th>
+                    <th className="p-4 text-left">Contact</th>
+                    <th className="p-4 text-left">Category</th>
+                    <th className="p-4 text-center">Points</th>
+                    <th className="p-4 text-center">Payment</th>
+                    <th className="p-4 text-center">Status</th>
+                    <th className="p-4 text-right">Verification</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredRegistrations.map((registration) => {
+                    const ranking = rankingRows.find(
+                      (row) =>
+                        normalizePlayerName(row.playerName) ===
+                          (registration.normalizedName ||
+                            normalizePlayerName(registration.fullName)) &&
+                        row.category.trim().toLowerCase() ===
+                          registration.category.trim().toLowerCase()
+                    );
+                    const processing = processingId === registration.id;
+
+                    return (
+                      <tr key={registration.id}>
+                        <td className="p-4">
+                          <strong className="block text-slate-950">
+                            {registration.fullName}
+                          </strong>
+                          <small className="font-semibold text-slate-400">
+                            {registration.origin || "Location not provided"}
+                            {registration.dateOfBirth
+                              ? ` · DOB ${registration.dateOfBirth}`
+                              : ""}
+                          </small>
+                        </td>
+                        <td className="p-4 text-sm font-medium text-slate-600">
+                          <div>{registration.email}</div>
+                          <div>{registration.phone}</div>
+                        </td>
+                        <td className="p-4">
+                          <strong className="block font-semibold">
+                            {registration.categoryLabel || registration.category}
+                          </strong>
+                          <small className="font-semibold text-slate-400">
+                            {registration.ntrpLevel || "Level not provided"}
+                            {registration.shirtSize
+                              ? ` · Shirt ${registration.shirtSize}`
+                              : ""}
+                          </small>
+                        </td>
+                        <td className="p-4 text-center font-extrabold text-amber-600">
+                          {ranking?.points ?? 0}
+                        </td>
+                        <td className="p-4 text-center">
+                          {registration.paymentProofUrl ? (
+                            <a
+                              href={registration.paymentProofUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex rounded-lg bg-blue-50 px-3 py-2 text-xs font-extrabold text-blue-700 hover:bg-blue-100"
+                            >
+                              View RM{registration.paymentAmount ?? 80} Proof
+                            </a>
+                          ) : (
+                            <span className="text-xs font-bold text-slate-400">
+                              No proof
+                            </span>
+                          )}
+                        </td>
+                        <td className="p-4 text-center">
+                          <span className={`registration-status registration-status-${registration.status}`}>
+                            {registration.status}
+                          </span>
+                        </td>
+                        <td className="p-4">
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              type="button"
+                              onClick={() =>
+                                handleStatusUpdate(registration, "approved")
+                              }
+                              disabled={processing || registration.status === "approved"}
+                              className="h-9 bg-emerald-600 px-3 text-white hover:bg-emerald-700 disabled:opacity-40"
+                            >
+                              {processing ? "Saving..." : "Approve"}
+                            </Button>
+                            <Button
+                              type="button"
+                              onClick={() =>
+                                handleStatusUpdate(registration, "rejected")
+                              }
+                              disabled={processing || registration.status === "rejected"}
+                              className="h-9 bg-red-600 px-3 text-white hover:bg-red-700 disabled:opacity-40"
+                            >
+                              Reject
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      </main>
     </div>
   );
 }

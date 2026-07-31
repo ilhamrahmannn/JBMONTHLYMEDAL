@@ -120,13 +120,12 @@ export default function HomePage() {
             </div>
 
             <div className="mt-8 flex flex-wrap gap-3">
-              <button
-                type="button"
-                disabled
-                className="inline-flex min-h-12 cursor-not-allowed items-center rounded-lg bg-lime-400 px-5 font-extrabold text-black opacity-50"
+              <Link
+                to="/register"
+                className="inline-flex min-h-12 items-center rounded-lg bg-lime-400 px-5 font-extrabold text-black transition hover:bg-lime-300"
               >
-                Registration Closed
-              </button>
+                Register Now
+              </Link>
               <Link
                 to="/playerview"
                 className="inline-flex min-h-12 items-center rounded-lg border border-white/20 bg-white/10 px-5 font-extrabold text-white hover:bg-white/15"
