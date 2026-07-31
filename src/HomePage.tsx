@@ -2,9 +2,14 @@ import { Link } from "react-router-dom";
 import {
   ArrowRight,
   BarChart3,
+  CalendarDays,
   ClipboardList,
+  Clock3,
   FolderOpen,
+  MapPin,
   Shield,
+  Shirt,
+  Ticket,
 } from "lucide-react";
 
 const featureCards = [
@@ -89,9 +94,10 @@ export default function HomePage() {
             <div className="absolute inset-[14%] rounded-full border-x-[3px] border-white/60 rotate-[28deg]" />
           </div>
 
-          <div className="relative -translate-y-10 max-w-[820px]">
+          <div className="relative mx-auto grid w-full max-w-[1500px] items-end gap-10 lg:grid-cols-[minmax(0,1.45fr)_minmax(360px,0.72fr)]">
+          <div className="max-w-[820px] lg:-translate-y-6">
             <span className="inline-flex rounded-full border border-lime-400/50 bg-black/35 px-3 py-2 text-xs font-extrabold text-lime-300">
-              Next Event: Sunday, 21 June 2026
+              Registration Open · Sunday, 30 August 2026
             </span>
 
             <div className="mt-6 w-full max-w-[820px] space-y-2">
@@ -100,14 +106,14 @@ export default function HomePage() {
               </h1>
 
               <h2 className="home-hero-series mt-3 text-left text-[28px] font-semibold uppercase italic tracking-[0.18em] text-[#F2F0E8] md:text-[42px]">
-                CLASH SERIES 2026
+                MERDEKA SERIES 2026
               </h2>
             </div>
 
             <p className="mt-6 max-w-2xl text-lg font-medium leading-8 text-white md:text-xl">
-              A friendly singles tournament for Johor Bahru tennis players, with
-              beginner and intermediate categories, live match order, group
-              results, and knockout draws.
+              Celebrate Merdeka on court in our friendly singles tournament,
+              featuring Mix Open and Mix Beginner categories for players of all
+              ages.
             </p>
 
             <div className="mt-5 inline-flex flex-col rounded-lg border border-lime-400/35 bg-lime-400/10 px-4 py-3 text-lime-300 shadow-[0_12px_36px_rgba(132,204,22,0.12)] backdrop-blur">
@@ -133,6 +139,70 @@ export default function HomePage() {
                 View Live Schedule
               </Link>
             </div>
+          </div>
+
+          <aside className="overflow-hidden rounded-[26px] border border-lime-300/30 bg-[#09120d]/90 shadow-[0_35px_100px_rgba(0,0,0,0.58)] backdrop-blur-xl">
+            <div className="border-b border-white/10 bg-[radial-gradient(circle_at_100%_0,rgba(163,230,53,0.22),transparent_42%),linear-gradient(135deg,rgba(255,255,255,0.08),rgba(255,255,255,0.015))] p-6 md:p-7">
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-[11px] font-black uppercase tracking-[0.18em] text-lime-300">
+                  Now accepting players
+                </span>
+                <span className="rounded-full bg-lime-400 px-3 py-1 text-[10px] font-black uppercase tracking-wide text-black">
+                  Open
+                </span>
+              </div>
+              <h3 className="mt-4 text-3xl font-black uppercase leading-tight text-white">
+                JB Monthly Medal
+              </h3>
+              <p className="mt-1 text-sm font-extrabold uppercase tracking-[0.16em] text-lime-200">
+                Merdeka Series 2026
+              </p>
+            </div>
+
+            <div className="p-6 md:p-7">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-xl border border-white/10 bg-white/[0.04] p-4">
+                  <CalendarDays className="size-5 text-lime-300" />
+                  <span className="mt-3 block text-[10px] font-black uppercase tracking-wider text-white/45">Date</span>
+                  <strong className="mt-1 block text-sm text-white">30 Aug 2026</strong>
+                </div>
+                <div className="rounded-xl border border-white/10 bg-white/[0.04] p-4">
+                  <Ticket className="size-5 text-lime-300" />
+                  <span className="mt-3 block text-[10px] font-black uppercase tracking-wider text-white/45">Entry fee</span>
+                  <strong className="mt-1 block text-sm text-white">RM80 / player</strong>
+                </div>
+              </div>
+
+              <div className="mt-3 flex items-start gap-3 rounded-xl border border-white/10 bg-white/[0.04] p-4">
+                <MapPin className="mt-0.5 size-5 shrink-0 text-lime-300" />
+                <div>
+                  <span className="block text-[10px] font-black uppercase tracking-wider text-white/45">Venue</span>
+                  <strong className="mt-1 block text-sm text-white">Nusa Duta Tennis Complex</strong>
+                </div>
+              </div>
+
+              <div className="mt-5">
+                <span className="text-[10px] font-black uppercase tracking-[0.16em] text-white/45">Categories · 24 players each</span>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <span className="rounded-full border border-lime-300/30 bg-lime-300/10 px-3 py-2 text-xs font-extrabold text-lime-100">Mix Open Singles</span>
+                  <span className="rounded-full border border-lime-300/30 bg-lime-300/10 px-3 py-2 text-xs font-extrabold text-lime-100">Mix Beginner Singles</span>
+                </div>
+              </div>
+
+              <div className="mt-5 grid gap-2 border-t border-white/10 pt-5 text-xs font-bold text-white/70">
+                <div className="flex items-center gap-2"><Clock3 className="size-4 text-red-400" /><span>Registration closes 16 August 2026</span></div>
+                <div className="flex items-center gap-2"><Shirt className="size-4 text-lime-300" /><span>Free tournament shirt for registered players</span></div>
+              </div>
+
+              <Link
+                to="/register"
+                className="mt-6 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-lime-400 px-5 font-black text-black transition hover:bg-lime-300"
+              >
+                Register for Merdeka Series
+                <ArrowRight className="size-4" />
+              </Link>
+            </div>
+          </aside>
           </div>
         </section>
 
