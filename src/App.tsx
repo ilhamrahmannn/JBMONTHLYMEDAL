@@ -1550,6 +1550,54 @@ console.log(rankingRows);
     (registration) => registration.tournamentId === currentTournamentId
   );
 
+  useEffect(() => {
+    if (!currentTournamentId || officialRankingRows.length === 0) return;
+
+    const sortedRankings = officialRankingRows
+      .slice()
+      .sort(
+        (a, b) =>
+          b.points - a.points ||
+          b.titles - a.titles ||
+          b.wins - a.wins ||
+          a.playerName.localeCompare(b.playerName)
+      );
+    const updates = currentRegistrations.flatMap((registration) => {
+      const rankingIndex = sortedRankings.findIndex((row) =>
+        playerNamesMatch(row.playerName, registration.fullName)
+      );
+      const ranking = rankingIndex >= 0 ? sortedRankings[rankingIndex] : null;
+      const nextPosition = ranking ? rankingIndex + 1 : null;
+      const nextPoints = ranking?.points ?? 0;
+      const nextStatus = ranking ? "Ranked" : "NR";
+
+      if (
+        registration.rankingPosition === nextPosition &&
+        (registration.rankingPoints ?? 0) === nextPoints &&
+        registration.rankingStatus === nextStatus
+      ) {
+        return [];
+      }
+
+      return [{ registration, nextPosition, nextPoints, nextStatus }];
+    });
+
+    if (updates.length === 0) return;
+
+    const batch = writeBatch(db);
+    updates.forEach(({ registration, nextPosition, nextPoints, nextStatus }) => {
+      batch.update(doc(db, "registrations", registration.id), {
+        rankingPosition: nextPosition,
+        rankingPoints: nextPoints,
+        rankingStatus: nextStatus,
+        rankingSyncedAt: serverTimestamp(),
+      });
+    });
+    void batch.commit().catch((error) =>
+      console.error("Registration ranking sync failed", error)
+    );
+  }, [currentTournamentId, registrations, officialRankingRows]);
+
   const updateRegistrationStatusLegacy = async (
     registration: TournamentRegistration,
     status: RegistrationStatus
@@ -1591,6 +1639,81 @@ console.log(rankingRows);
       reviewedAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
+  };
+
+  const deleteRejectedRegistration = async (
+    registration: TournamentRegistration
+  ) => {
+    if (registration.status !== "rejected") return;
+    await deleteDoc(doc(db, "registrations", registration.id));
+  };
+
+  const postAcceptanceList = async (category: Category) => {
+    const isOpen = category.name.toLowerCase().includes("open");
+    const categoryKey = isOpen ? "open" : "beginner";
+    const categoryLabel = isOpen
+      ? "MIX SINGLES OPEN"
+      : "MIX SINGLES BEGINNER";
+    const sortedRankings = officialRankingRows
+      .slice()
+      .sort(
+        (a, b) =>
+          b.points - a.points ||
+          b.titles - a.titles ||
+          b.wins - a.wins ||
+          a.playerName.localeCompare(b.playerName)
+      );
+    const players = currentRegistrations
+      .filter(
+        (registration) =>
+          registration.status === "approved" &&
+          registration.category.trim().toLowerCase() ===
+            category.name.trim().toLowerCase()
+      )
+      .map((registration) => {
+        const rankingIndex = sortedRankings.findIndex((row) =>
+          playerNamesMatch(row.playerName, registration.fullName)
+        );
+        return {
+          registrationId: registration.id,
+          name: registration.fullName,
+          origin: registration.origin || "Not provided",
+          ranking: rankingIndex >= 0 ? rankingIndex + 1 : null,
+          points: rankingIndex >= 0 ? sortedRankings[rankingIndex].points : 0,
+        };
+      })
+      .sort(
+        (a, b) =>
+          (a.ranking ?? Number.MAX_SAFE_INTEGER) -
+            (b.ranking ?? Number.MAX_SAFE_INTEGER) ||
+          a.name.localeCompare(b.name)
+      )
+      .slice(0, 24);
+
+    if (players.length === 0) {
+      alert(`No approved registrations found for ${categoryLabel}.`);
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Post ${players.length} approved players for ${categoryLabel} to the public Acceptance List?`
+    );
+    if (!confirmed) return;
+
+    await setDoc(
+      doc(db, "acceptanceLists", currentTournamentId),
+      {
+        tournamentId: currentTournamentId,
+        tournamentName,
+        tournamentDate,
+        [`${categoryKey}Label`]: categoryLabel,
+        [`${categoryKey}Players`]: players,
+        [`${categoryKey}PublishedAt`]: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+    alert(`${categoryLabel} Acceptance List has been posted.`);
   };
 
   const seedApprovedRegistrations = (category: Category) => {
@@ -2368,6 +2491,8 @@ if (viewMode === "admin" && isAdminAuthenticated && adminRegistrationOpen) {
       categories={categories}
       onBack={() => setAdminRegistrationOpen(false)}
       onUpdateStatus={updateRegistrationStatus}
+      onDeleteRegistration={deleteRejectedRegistration}
+      onPostAcceptanceList={postAcceptanceList}
       onSeedCategory={seedApprovedRegistrations}
     />
   );
@@ -3851,6 +3976,8 @@ function RegistrationVerificationPage({
   categories,
   onBack,
   onUpdateStatus,
+  onDeleteRegistration,
+  onPostAcceptanceList,
   onSeedCategory,
 }: {
   tournamentName: string;
@@ -3863,6 +3990,10 @@ function RegistrationVerificationPage({
     registration: TournamentRegistration,
     status: RegistrationStatus
   ) => Promise<void>;
+  onDeleteRegistration: (
+    registration: TournamentRegistration
+  ) => Promise<void>;
+  onPostAcceptanceList: (category: Category) => Promise<void>;
   onSeedCategory: (category: Category) => void;
 }) {
   const [statusFilter, setStatusFilter] = useState<
@@ -3870,12 +4001,24 @@ function RegistrationVerificationPage({
   >("pending");
   const [registrationSearch, setRegistrationSearch] = useState("");
   const [processingId, setProcessingId] = useState("");
+  const [postingCategoryId, setPostingCategoryId] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState<
+    "all" | "open" | "beginner"
+  >("all");
+  const [registrationSort, setRegistrationSort] = useState<
+    "name" | "category" | "ranking"
+  >("name");
 
   const filteredRegistrations = registrations
     .filter(
       (registration) =>
         statusFilter === "all" || registration.status === statusFilter
     )
+    .filter((registration) => {
+      if (categoryFilter === "all") return true;
+      const category = `${registration.categoryLabel || ""} ${registration.category}`.toLowerCase();
+      return category.includes(categoryFilter);
+    })
     .filter((registration) => {
       const search = registrationSearch.trim().toLowerCase();
       if (!search) return true;
@@ -3887,7 +4030,31 @@ function RegistrationVerificationPage({
         registration.category.toLowerCase().includes(search)
       );
     })
-    .sort((a, b) => a.fullName.localeCompare(b.fullName));
+    .sort((a, b) => {
+      if (registrationSort === "ranking") {
+        const aRanking = rankingRows.find((row) =>
+          playerNamesMatch(row.playerName, a.fullName)
+        );
+        const bRanking = rankingRows.find((row) =>
+          playerNamesMatch(row.playerName, b.fullName)
+        );
+        return (
+          (bRanking?.points ?? 0) - (aRanking?.points ?? 0) ||
+          a.fullName.localeCompare(b.fullName)
+        );
+      }
+
+      if (registrationSort === "category") {
+        const aCategory = a.categoryLabel || a.category;
+        const bCategory = b.categoryLabel || b.category;
+        return (
+          aCategory.localeCompare(bCategory) ||
+          a.fullName.localeCompare(b.fullName)
+        );
+      }
+
+      return a.fullName.localeCompare(b.fullName);
+    });
 
   const downloadAllRegistrations = () => {
     const escapeCsv = (value: unknown) => {
@@ -3989,6 +4156,22 @@ function RegistrationVerificationPage({
     }
   };
 
+  const handleDeleteRegistration = async (
+    registration: TournamentRegistration
+  ) => {
+    const confirmed = window.confirm(
+      `Permanently delete the rejected registration for ${registration.fullName}?`
+    );
+    if (!confirmed) return;
+
+    setProcessingId(registration.id);
+    try {
+      await onDeleteRegistration(registration);
+    } finally {
+      setProcessingId("");
+    }
+  };
+
   return (
     <div className="registration-admin-page">
       <header className="registration-admin-header">
@@ -4021,14 +4204,32 @@ function RegistrationVerificationPage({
             Open Registration Form
           </Link>
           {categories.map((category) => (
-            <Button
-              key={category.id}
-              type="button"
-              onClick={() => onSeedCategory(category)}
-              className="rounded-xl bg-emerald-600 font-bold text-white hover:bg-emerald-700"
-            >
-              Seed {category.name}
-            </Button>
+            <div key={category.id} className="flex gap-2">
+              <Button
+                type="button"
+                onClick={async () => {
+                  setPostingCategoryId(category.id);
+                  try {
+                    await onPostAcceptanceList(category);
+                  } finally {
+                    setPostingCategoryId("");
+                  }
+                }}
+                disabled={Boolean(postingCategoryId)}
+                className="rounded-xl bg-blue-600 font-bold text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                {postingCategoryId === category.id
+                  ? "Posting..."
+                  : `Post ${category.name.toLowerCase().includes("open") ? "Mix Singles Open" : "Mix Singles Beginner"}`}
+              </Button>
+              <Button
+                type="button"
+                onClick={() => onSeedCategory(category)}
+                className="rounded-xl bg-emerald-600 font-bold text-white hover:bg-emerald-700"
+              >
+                Seed {category.name}
+              </Button>
+            </div>
           ))}
         </div>
       </header>
@@ -4070,6 +4271,40 @@ function RegistrationVerificationPage({
                 placeholder="Search name, email or phone..."
               />
             </div>
+
+            <label className="grid gap-1 text-xs font-extrabold uppercase tracking-wide text-slate-500">
+              Category
+              <select
+                value={categoryFilter}
+                onChange={(event) =>
+                  setCategoryFilter(
+                    event.target.value as "all" | "open" | "beginner"
+                  )
+                }
+                className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold normal-case tracking-normal text-slate-800 outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              >
+                <option value="all">All Categories</option>
+                <option value="open">Mix Singles Open</option>
+                <option value="beginner">Mix Singles Beginner</option>
+              </select>
+            </label>
+
+            <label className="grid gap-1 text-xs font-extrabold uppercase tracking-wide text-slate-500">
+              Sort by
+              <select
+                value={registrationSort}
+                onChange={(event) =>
+                  setRegistrationSort(
+                    event.target.value as "name" | "category" | "ranking"
+                  )
+                }
+                className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold normal-case tracking-normal text-slate-800 outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              >
+                <option value="name">Player Name</option>
+                <option value="ranking">Ranking (Highest First)</option>
+                <option value="category">Category</option>
+              </select>
+            </label>
 
             <button
               type="button"
@@ -4184,6 +4419,19 @@ function RegistrationVerificationPage({
                             >
                               Reject
                             </Button>
+                            {registration.status === "rejected" && (
+                              <Button
+                                type="button"
+                                onClick={() =>
+                                  handleDeleteRegistration(registration)
+                                }
+                                disabled={processing}
+                                className="h-9 bg-slate-950 px-3 text-white hover:bg-slate-800 disabled:opacity-40"
+                              >
+                                <Trash2 className="mr-1 size-4" />
+                                Delete
+                              </Button>
+                            )}
                           </div>
                         </td>
                       </tr>

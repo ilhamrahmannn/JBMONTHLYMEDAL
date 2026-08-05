@@ -431,9 +431,7 @@ export default function RegistrationPage() {
           data.tournamentId === tournamentId &&
           data.category === systemCategory &&
           data.status !== "rejected" &&
-          (data.normalizedEmail === normalizedEmail ||
-            data.normalizedPhone === normalizedPhone ||
-            data.normalizedName === normalizedName)
+          data.normalizedName === normalizedName
         );
       });
 
