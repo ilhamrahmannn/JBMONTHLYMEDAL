@@ -11,6 +11,9 @@ node_modules
 dist
 dist-ssr
 *.local
+.firebase/
+.codex-remote-attachments/
+tmp/
 
 # Editor directories and files
 .vscode/*
@@ -22,3 +25,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Local Firebase diagnostics and generated previews
+firebase-debug.log*
+*-debug.log

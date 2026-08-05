@@ -42,6 +42,28 @@ import { Trash2 } from "lucide-react";
 const ADMIN_PASSWORD = "JBMM2026";
 const normalizePlayerName = (value: string) =>
   value.trim().replace(/\s+/g, " ").toUpperCase();
+const playerIdentityTokens = (value: string) =>
+  normalizePlayerName(value)
+    .replace(/[^A-Z0-9]+/g, " ")
+    .split(/\s+/)
+    .filter(
+      (token) =>
+        Boolean(token) &&
+        !["DR", "DOCTOR", "MR", "MRS", "MS", "MISS", "PROF"].includes(token)
+    );
+const playerNamesMatch = (left: string, right: string) => {
+  const leftTokens = playerIdentityTokens(left);
+  const rightTokens = playerIdentityTokens(right);
+
+  if (leftTokens.join(" ") === rightTokens.join(" ")) return true;
+
+  const shorter =
+    leftTokens.length <= rightTokens.length ? leftTokens : rightTokens;
+  const longer =
+    leftTokens.length <= rightTokens.length ? rightTokens : leftTokens;
+
+  return shorter.length >= 2 && shorter.every((token) => longer.includes(token));
+};
 const rankingDocumentId = (category: string, playerName: string) =>
   `${category}-${normalizePlayerName(playerName)}`
     .toLowerCase()
@@ -1088,8 +1110,7 @@ function buildSeededAcceptancePlayers(
   return names.map((name) => {
     const ranking = rankingRows.find(
       (r) =>
-        r.playerName.trim().toLowerCase() ===
-          name.trim().toLowerCase() &&
+        playerNamesMatch(r.playerName, name) &&
         r.category.trim().toLowerCase() ===
           categoryName.trim().toLowerCase()
     );
@@ -1528,7 +1549,7 @@ console.log(rankingRows);
     (registration) => registration.tournamentId === currentTournamentId
   );
 
-  const updateRegistrationStatus = async (
+  const updateRegistrationStatusLegacy = async (
     registration: TournamentRegistration,
     status: RegistrationStatus
   ) => {
@@ -1558,6 +1579,17 @@ console.log(rankingRows);
         createdAt: serverTimestamp(),
       });
     }
+  };
+
+  const updateRegistrationStatus = async (
+    registration: TournamentRegistration,
+    status: RegistrationStatus
+  ) => {
+    await updateDoc(doc(db, "registrations", registration.id), {
+      status,
+      reviewedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
   };
 
   const seedApprovedRegistrations = (category: Category) => {
@@ -2577,8 +2609,7 @@ if (viewMode === "admin" && isAdminAuthenticated && adminRegistrationOpen) {
                       .map((registration) => {
                         const ranking = officialRankingRows.find(
                           (row) =>
-                            normalizePlayerName(row.playerName) ===
-                              registration.normalizedName &&
+                            playerNamesMatch(row.playerName, registration.fullName) &&
                             row.category.trim().toLowerCase() ===
                               registration.category.trim().toLowerCase()
                         );
@@ -4076,9 +4107,7 @@ function RegistrationVerificationPage({
                   {filteredRegistrations.map((registration) => {
                     const ranking = rankingRows.find(
                       (row) =>
-                        normalizePlayerName(row.playerName) ===
-                          (registration.normalizedName ||
-                            normalizePlayerName(registration.fullName)) &&
+                        playerNamesMatch(row.playerName, registration.fullName) &&
                         row.category.trim().toLowerCase() ===
                           registration.category.trim().toLowerCase()
                     );

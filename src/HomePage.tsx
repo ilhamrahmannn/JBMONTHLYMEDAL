@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   ArrowRight,
@@ -5,11 +6,13 @@ import {
   CalendarDays,
   ClipboardList,
   Clock3,
+  Coffee,
   FolderOpen,
   MapPin,
   Shield,
   Shirt,
   Ticket,
+  X,
 } from "lucide-react";
 
 const featureCards = [
@@ -44,6 +47,23 @@ const featureCards = [
 ];
 
 export default function HomePage() {
+  const [showSupportQr, setShowSupportQr] = useState(false);
+
+  useEffect(() => {
+    if (!showSupportQr) return;
+
+    const closeWithEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setShowSupportQr(false);
+    };
+
+    document.addEventListener("keydown", closeWithEscape);
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", closeWithEscape);
+      document.body.style.overflow = "";
+    };
+  }, [showSupportQr]);
+
   return (
     <div className="min-h-screen bg-[#07100c] text-white">
       <header className="sticky top-0 z-30 flex items-center justify-between border-b border-white/10 bg-[#07100c]/90 px-5 py-3 backdrop-blur md:px-10">
@@ -239,7 +259,88 @@ export default function HomePage() {
             })}
           </div>
         </section>
+
+        <section className="border-t border-white/10 bg-[#050c09] px-5 py-14 md:px-16">
+          <div className="mx-auto flex max-w-7xl flex-col items-start justify-between gap-7 overflow-hidden rounded-[26px] border border-lime-400/25 bg-[radial-gradient(circle_at_95%_0,rgba(163,230,53,0.16),transparent_38%),linear-gradient(135deg,#0d1a12,#08110c)] p-7 shadow-[0_28px_80px_rgba(0,0,0,0.4)] md:flex-row md:items-center md:p-10">
+            <div className="max-w-2xl">
+              <span className="inline-flex items-center gap-2 text-xs font-black uppercase tracking-[0.18em] text-lime-300">
+                <Coffee className="size-4" /> Support the platform
+              </span>
+              <h2 className="mt-3 text-3xl font-black text-white md:text-4xl">
+                Buy us a coffee ☕
+              </h2>
+              <p className="mt-3 text-sm leading-7 text-green-100/70 md:text-base">
+                If JB Monthly Medal makes your tournament experience easier,
+                you may support the development and upkeep of this website with
+                a small contribution.
+              </p>
+              <p className="mt-3 text-xs font-bold text-white/45">
+                Optional contribution · Not part of the tournament registration fee.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowSupportQr(true)}
+              className="inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-lime-400 px-6 font-black text-black shadow-[0_14px_35px_rgba(163,230,53,0.2)] transition hover:-translate-y-0.5 hover:bg-lime-300"
+            >
+              <Coffee className="size-5" />
+              View Support QR
+            </button>
+          </div>
+        </section>
       </main>
+
+      {showSupportQr && (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-black/80 p-5 backdrop-blur-sm"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target) setShowSupportQr(false);
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="support-qr-title"
+            className="relative w-full max-w-md rounded-[28px] border border-lime-400/30 bg-[#0a140e] p-6 text-center shadow-[0_35px_120px_rgba(0,0,0,0.75)] md:p-8"
+          >
+            <button
+              type="button"
+              onClick={() => setShowSupportQr(false)}
+              aria-label="Close support QR"
+              className="absolute right-4 top-4 grid size-10 place-items-center rounded-full border border-white/10 bg-white/5 text-white/70 transition hover:bg-white/10 hover:text-white"
+            >
+              <X className="size-5" />
+            </button>
+
+            <span className="mx-auto grid size-12 place-items-center rounded-full bg-lime-400/15 text-lime-300 ring-1 ring-lime-400/25">
+              <Coffee className="size-6" />
+            </span>
+            <h2 id="support-qr-title" className="mt-4 text-2xl font-black text-white">
+              Support JB Monthly Medal
+            </h2>
+            <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-green-100/65">
+              Scan this DuitNow QR using your preferred banking or e-wallet app.
+            </p>
+
+            <div className="mx-auto mt-6 max-w-[300px] overflow-hidden rounded-2xl border border-white/10 bg-white p-3 shadow-[0_20px_55px_rgba(0,0,0,0.45)]">
+              <img
+                src="/support-coffee-qr.png"
+                alt="DuitNow QR for supporting JB Monthly Medal"
+                className="aspect-square w-full object-contain"
+              />
+            </div>
+
+            <p className="mt-5 text-xs font-bold text-lime-300">
+              Thank you for supporting the website ☕
+            </p>
+            <p className="mt-2 text-[11px] text-white/40">
+              This is an optional contribution and is not a registration payment.
+            </p>
+          </section>
+        </div>
+      )}
     </div>
   );
 }

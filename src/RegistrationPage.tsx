@@ -149,7 +149,11 @@ const identityTokens = (value: string) =>
   normalizeName(value)
     .replace(/[^A-Z0-9]+/g, " ")
     .split(/\s+/)
-    .filter(Boolean);
+    .filter(
+      (token) =>
+        Boolean(token) &&
+        !["DR", "DOCTOR", "MR", "MRS", "MS", "MISS", "PROF"].includes(token)
+    );
 
 const identityCoreTokens = (value: string) => {
   const tokens = identityTokens(value);
