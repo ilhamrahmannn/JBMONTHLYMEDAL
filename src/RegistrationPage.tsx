@@ -176,7 +176,9 @@ const playerNameMatchScore = (left: string, right: string) => {
   const longer =
     leftTokens.length <= rightTokens.length ? rightTokens : leftTokens;
 
-  if (shorter.length < 2) return 0;
+  if (shorter.length === 1) {
+    return shorter[0].length >= 4 && longer.includes(shorter[0]) ? 50 : 0;
+  }
 
   const longerCore =
     leftTokens.length <= rightTokens.length

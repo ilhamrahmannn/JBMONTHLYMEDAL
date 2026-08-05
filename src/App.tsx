@@ -62,7 +62,11 @@ const playerNamesMatch = (left: string, right: string) => {
   const longer =
     leftTokens.length <= rightTokens.length ? rightTokens : leftTokens;
 
-  return shorter.length >= 2 && shorter.every((token) => longer.includes(token));
+  if (shorter.length === 1) {
+    return shorter[0].length >= 4 && longer.includes(shorter[0]);
+  }
+
+  return shorter.every((token) => longer.includes(token));
 };
 const rankingDocumentId = (category: string, playerName: string) =>
   `${category}-${normalizePlayerName(playerName)}`
