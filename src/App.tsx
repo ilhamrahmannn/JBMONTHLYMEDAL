@@ -11,6 +11,7 @@ import {
   updateDoc,
   increment,
   writeBatch,
+  deleteField,
 } from "firebase/firestore";
 import { db } from "./firebase";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -1716,6 +1717,37 @@ console.log(rankingRows);
     alert(`${categoryLabel} Acceptance List has been posted.`);
   };
 
+  const clearAcceptanceList = async (category: Category) => {
+    const isOpen = category.name.toLowerCase().includes("open");
+    const categoryKey = isOpen ? "open" : "beginner";
+    const categoryLabel = isOpen
+      ? "MIX SINGLES OPEN"
+      : "MIX SINGLES BEGINNER";
+    const acceptanceRef = doc(db, "acceptanceLists", currentTournamentId);
+    const acceptanceSnapshot = await getDoc(acceptanceRef);
+    const existingPlayers = acceptanceSnapshot.exists()
+      ? acceptanceSnapshot.data()[`${categoryKey}Players`]
+      : null;
+
+    if (!Array.isArray(existingPlayers) || existingPlayers.length === 0) {
+      alert(`${categoryLabel} Acceptance List is already empty.`);
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Clear the public ${categoryLabel} Acceptance List? Registration records will not be deleted.`
+    );
+    if (!confirmed) return;
+
+    await updateDoc(acceptanceRef, {
+      [`${categoryKey}Label`]: deleteField(),
+      [`${categoryKey}Players`]: deleteField(),
+      [`${categoryKey}PublishedAt`]: deleteField(),
+      updatedAt: serverTimestamp(),
+    });
+    alert(`${categoryLabel} Acceptance List has been cleared.`);
+  };
+
   const seedApprovedRegistrations = (category: Category) => {
     const approvedNames = currentRegistrations
       .filter(
@@ -2493,6 +2525,7 @@ if (viewMode === "admin" && isAdminAuthenticated && adminRegistrationOpen) {
       onUpdateStatus={updateRegistrationStatus}
       onDeleteRegistration={deleteRejectedRegistration}
       onPostAcceptanceList={postAcceptanceList}
+      onClearAcceptanceList={clearAcceptanceList}
       onSeedCategory={seedApprovedRegistrations}
     />
   );
@@ -3978,6 +4011,7 @@ function RegistrationVerificationPage({
   onUpdateStatus,
   onDeleteRegistration,
   onPostAcceptanceList,
+  onClearAcceptanceList,
   onSeedCategory,
 }: {
   tournamentName: string;
@@ -3994,6 +4028,7 @@ function RegistrationVerificationPage({
     registration: TournamentRegistration
   ) => Promise<void>;
   onPostAcceptanceList: (category: Category) => Promise<void>;
+  onClearAcceptanceList: (category: Category) => Promise<void>;
   onSeedCategory: (category: Category) => void;
 }) {
   const [statusFilter, setStatusFilter] = useState<
@@ -4221,6 +4256,21 @@ function RegistrationVerificationPage({
                 {postingCategoryId === category.id
                   ? "Posting..."
                   : `Post ${category.name.toLowerCase().includes("open") ? "Mix Singles Open" : "Mix Singles Beginner"}`}
+              </Button>
+              <Button
+                type="button"
+                onClick={async () => {
+                  setPostingCategoryId(category.id);
+                  try {
+                    await onClearAcceptanceList(category);
+                  } finally {
+                    setPostingCategoryId("");
+                  }
+                }}
+                disabled={Boolean(postingCategoryId)}
+                className="rounded-xl bg-slate-600 font-bold text-white hover:bg-slate-700 disabled:opacity-50"
+              >
+                Clear
               </Button>
               <Button
                 type="button"
