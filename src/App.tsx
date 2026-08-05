@@ -1113,10 +1113,7 @@ function buildSeededAcceptancePlayers(
 ): AcceptancePlayer[] {
   return names.map((name) => {
     const ranking = rankingRows.find(
-      (r) =>
-        playerNamesMatch(r.playerName, name) &&
-        r.category.trim().toLowerCase() ===
-          categoryName.trim().toLowerCase()
+      (r) => playerNamesMatch(r.playerName, name)
     );
 
     return {
@@ -2613,9 +2610,7 @@ if (viewMode === "admin" && isAdminAuthenticated && adminRegistrationOpen) {
                       .map((registration) => {
                         const ranking = officialRankingRows.find(
                           (row) =>
-                            playerNamesMatch(row.playerName, registration.fullName) &&
-                            row.category.trim().toLowerCase() ===
-                              registration.category.trim().toLowerCase()
+                            playerNamesMatch(row.playerName, registration.fullName)
                         );
 
                         return (
@@ -4111,9 +4106,7 @@ function RegistrationVerificationPage({
                   {filteredRegistrations.map((registration) => {
                     const ranking = rankingRows.find(
                       (row) =>
-                        playerNamesMatch(row.playerName, registration.fullName) &&
-                        row.category.trim().toLowerCase() ===
-                          registration.category.trim().toLowerCase()
+                        playerNamesMatch(row.playerName, registration.fullName)
                     );
                     const processing = processingId === registration.id;
 
